@@ -26,8 +26,9 @@
     "src_folder": {
       "name": "src",
       "children": [
-        { "name": "app.module.ts" },
+        { "name": "{kebab-case}.module.ts" },
         { "name": "main.ts" },
+        { "name": "{kebab-case}.main.ts" },
         { "name": "module", "ruleId": "module_folder" }
       ]
     },

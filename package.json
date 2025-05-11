@@ -28,7 +28,11 @@
     "identity:db:generate": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:generate src/module/identity/persistence/migration/migration -d src/module/identity/persistence/typeorm-datasource.ts",
     "identity:db:migrate": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:run -d src/module/identity/persistence/typeorm-datasource.ts",
     "identity:db:drop": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js schema:drop -d src/module/identity/persistence/typeorm-datasource.ts",
-    "db:migrate:all": "yarn content:db:migrate && yarn billing:db:migrate && yarn identity:db:migrate"
+    "db:migrate:all": "yarn content:db:migrate && yarn billing:db:migrate && yarn identity:db:migrate",
+    "docker:build": "docker-compose --profile all build",
+    "docker:start": "docker-compose --profile all up -d",
+    "docker:start:deps": "docker-compose --profile deps up -d",
+    "docker:down": "docker-compose down"
   },
   "dependencies": {
     "@apollo/server": "^4.10.5",

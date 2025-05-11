@@ -1,26 +1,85 @@
-version: '3.8'
-
 name: 'fakeflix'
 
 services:
+  monolith:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fakeflix-monolith
+    profiles: ['all']
+    ports:
+      - '3000:3000'
+    environment:
+      - PORT=3000
+      - DATABASE_URL=postgresql://db:postgres@postgres:5432/fakeflix_test
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+      - DATABASE_USERNAME=postgres
+      - DATABASE_PASSWORD=postgres
+      - DATABASE_NAME=fakeflix_test
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MOVIEDB_API_TOKEN=''
+      - MOVIEDB_BASE_URL=https://api.themoviedb.org/3
+      - BILLING_API_URL=https://localhost:3000
+      - GEMINI_API_URL=https://gemini-api.example.com
+      - GEMINI_API_KEY=your-gemini-api-key
+    depends_on:
+      db:
+        condition: service_started
+    networks:
+      - default
+  video-processor-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fakeflix-video-processor-worker
+    profiles: ['all']
+    command: ['node', 'dist/video-processor-worker.main.js']
+    ports:
+      - '3001:3001'
+    environment:
+      - PORT=3001
+      - DATABASE_URL=postgresql://db:postgres@postgres:5432/fakeflix_test
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+      - DATABASE_USERNAME=postgres
+      - DATABASE_PASSWORD=postgres
+      - DATABASE_NAME=fakeflix_test
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MOVIEDB_API_TOKEN=''
+      - MOVIEDB_BASE_URL=https://api.themoviedb.org/3
+      - BILLING_API_URL=https://localhost:3000
+      - GEMINI_API_URL=https://gemini-api.example.com
+      - GEMINI_API_KEY=your-gemini-api-key
+    depends_on:
+      db:
+        condition: service_started
+    networks:
+      - default
   db:
     image: postgres:15-alpine
     container_name: fakeflix-db
+    profiles: ['all', 'deps']
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=fakeflix_test
     ports:
       - '5432:5432'
+    volumes:
+      - postgres-data:/data
 
   redis:
     image: redis:7-alpine
+    profiles: ['all', 'deps']
     container_name: fakeflix-redis
     ports:
       - '6379:6379'
     volumes:
       - redis-data:/data
     command: redis-server --save 60 1 --loglevel warning
-
 volumes:
   redis-data:
+  postgres-data:

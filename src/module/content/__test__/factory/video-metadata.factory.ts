@@ -1,4 +1,4 @@
-import { VideoMetadata } from '@contentModule/persistence/entity/video-metadata.entity';
+import { VideoMetadata } from '@contentModule/shared/persistence/entity/video-metadata.entity';
 import { faker } from '@faker-js/faker/.';
 
 import * as Factory from 'factory.ts';

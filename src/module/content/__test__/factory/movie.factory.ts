@@ -1,4 +1,4 @@
-import { Movie } from '@contentModule/persistence/entity/movie.entity';
+import { Movie } from '@contentModule/shared/persistence/entity/movie.entity';
 import { faker } from '@faker-js/faker/.';
 
 import * as Factory from 'factory.ts';

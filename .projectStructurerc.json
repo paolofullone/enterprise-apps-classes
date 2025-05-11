@@ -35,7 +35,7 @@
       "name": "module",
       "children": [
         { "name": "billing", "ruleId": "domain_module_folder" },
-        { "name": "content", "ruleId": "domain_module_folder" },
+        { "name": "content", "ruleId": "sub_domain_module_folder" },
         { "name": "identity", "ruleId": "domain_module_folder" },
         { "name": "shared", "ruleId": "shared_module_folder" }
       ]
@@ -43,7 +43,7 @@
     "domain_module_folder": {
       "name": "{kebab-case}",
       "children": [
-        { "name": "{folder-name}.module.ts" },
+        { "name": "{kebab-case}.module.ts" },
         { "name": "__test__", "ruleId": "test_folder" },
         { "name": "core", "ruleId": "core_folder" },
         { "name": "http", "ruleId": "http_folder" },
@@ -65,6 +65,14 @@
           "name": "queue",
           "ruleId": "queue_folder"
         }
+      ]
+    },
+    "sub_domain_module_folder": {
+      "name": "{kebab-case}",
+      "children": [
+        { "name": "{kebab-case}.module.ts" },
+        { "name": "__test__", "ruleId": "test_folder" },
+        { "name": "{kebab-case}", "ruleId": "domain_module_folder" }
       ]
     },
     "use_case_folder": {

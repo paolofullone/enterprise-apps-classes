@@ -1,0 +1,19 @@
+---
+description: Core architecture principles
+globs: []
+alwaysApply: true
+---
+
+# Fakeflix Architecture Principles
+
+## Core Rules (Full details: docs/architecture-guidelines.md)
+
+**You MUST read `docs/architecture-guidelines.md` when:**
+- Creating or modifying module structure
+- Questions about architectural patterns
+- Naming conventions for services/entities/DTOs
+- Feature folder patterns
+- Domain boundaries and dependencies
+
+**How to load it:**
+Use the `read_file` tool to load the file before providing architectural guidance.

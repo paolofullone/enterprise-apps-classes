@@ -6,9 +6,7 @@ alwaysApply: true
 
 # Fakeflix Architecture Principles
 
-## Core Rules (Full details: docs/architecture-guidelines.md)
-
-**You MUST read `docs/architecture-guidelines.md` when:**
+**You MUST read `docs/ARCHITECTURE-GUIDELINES.md` and `docs/MODULAR-ARCHITECTURE-GUIDELINES.md` when:**
 - Creating or modifying module structure
 - Questions about architectural patterns
 - Naming conventions for services/entities/DTOs

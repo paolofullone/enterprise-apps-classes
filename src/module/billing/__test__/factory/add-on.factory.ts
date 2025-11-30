@@ -1,7 +1,7 @@
 import { faker } from '@faker-js/faker';
 import * as Factory from 'factory.ts';
-import { AddOn } from '@billingModule/persistence/entity/add-on.entity';
-import { AddOnType } from '@billingModule/core/enum/add-on-type.enum';
+import { AddOn } from '@billingModule/subscription/persistence/entity/add-on.entity';
+import { AddOnType } from '@billingModule/subscription/core/enum/add-on-type.enum';
 
 export const addOnFactory = Factory.Sync.makeFactory<Partial<AddOn>>({
   id: Factory.each(() => faker.string.uuid()),

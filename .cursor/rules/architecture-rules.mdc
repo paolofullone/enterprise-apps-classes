@@ -10,8 +10,20 @@ alwaysApply: true
 - Creating or modifying module structure
 - Questions about architectural patterns
 - Naming conventions for services/entities/DTOs
-- Feature folder patterns
 - Domain boundaries and dependencies
 
+**You MUST read `docs/FEATURE-FOLDERS-GUIDELINES.md` when:**
+- Creating new feature folders
+- Deciding if something should be a feature vs sub-feature vs shared/
+- Questions about Feature Folders vs Feature Modules
+- Organizing code within a Domain Module (billing/, content/, identity/)
+- Adding services, entities, or controllers to existing features
+
+**Key Feature Folders Rules (RFC-08):**
+- Feature Folders are JUST FOLDERS, not NestJS modules
+- ONE NestJS module per Domain Module (e.g., `billing.module.ts`)
+- DO NOT create `subscription.module.ts`, `invoice.module.ts`, etc.
+- All providers registered in the parent module
+
 **How to load it:**
-Use the `read_file` tool to load the file before providing architectural guidance.
+Use the `read_file` tool to load the appropriate file before providing architectural guidance.

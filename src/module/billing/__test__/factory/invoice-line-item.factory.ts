@@ -1,7 +1,7 @@
 import { faker } from '@faker-js/faker';
 import * as Factory from 'factory.ts';
-import { InvoiceLineItem } from '@billingModule/persistence/entity/invoice-line-item.entity';
-import { ChargeType } from '@billingModule/core/enum/charge-type.enum';
+import { InvoiceLineItem } from '@billingModule/invoice/persistence/entity/invoice-line-item.entity';
+import { ChargeType } from '@billingModule/shared/core/enum/charge-type.enum';
 
 export const invoiceLineItemFactory = Factory.Sync.makeFactory<
   Partial<InvoiceLineItem>

@@ -19,6 +19,7 @@ projectStructure.cache.json
 .DS_Store
 
 .env
+DDD.md
 
 # Tests
 /coverage

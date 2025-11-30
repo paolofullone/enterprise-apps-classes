@@ -1,6 +1,6 @@
 import { faker } from '@faker-js/faker';
-import { PlanInterval } from '@billingModule/core/enum/plan-interval.enum';
-import { Plan } from '@billingModule/persistence/entity/plan.entity';
+import { PlanInterval } from '@billingModule/subscription/core/enum/plan-interval.enum';
+import { Plan } from '@billingModule/subscription/persistence/entity/plan.entity';
 
 import * as Factory from 'factory.ts';
 

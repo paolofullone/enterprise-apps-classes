@@ -1,7 +1,7 @@
 import { faker } from '@faker-js/faker';
 import * as Factory from 'factory.ts';
-import { Invoice } from '@billingModule/persistence/entity/invoice.entity';
-import { InvoiceStatus } from '@billingModule/core/enum/invoice-status.enum';
+import { Invoice } from '@billingModule/invoice/persistence/entity/invoice.entity';
+import { InvoiceStatus } from '@billingModule/invoice/core/enum/invoice-status.enum';
 
 export const invoiceFactory = Factory.Sync.makeFactory<Partial<Invoice>>({
   id: Factory.each(() => faker.string.uuid()),

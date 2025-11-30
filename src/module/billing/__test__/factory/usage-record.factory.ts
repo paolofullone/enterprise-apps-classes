@@ -1,7 +1,7 @@
 import { faker } from '@faker-js/faker';
 import * as Factory from 'factory.ts';
-import { UsageRecord } from '@billingModule/persistence/entity/usage-record.entity';
-import { UsageType } from '@billingModule/core/enum/usage-type.enum';
+import { UsageRecord } from '@billingModule/usage/persistence/entity/usage-record.entity';
+import { UsageType } from '@billingModule/usage/core/enum/usage-type.enum';
 
 export const usageRecordFactory = Factory.Sync.makeFactory<
   Partial<UsageRecord>

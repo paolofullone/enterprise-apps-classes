@@ -32,11 +32,7 @@ export class SubscriptionBillingController {
     @Param('id') subscriptionId: string,
     @Body() dto: ChangePlanRequestDto,
   ): Promise<ChangePlanResponseDto> {
-    // TODO: Get userId from request context/auth token
-    const userId = dto.userId || 'current-user-id';
-
     const result = await this.subscriptionBillingService.changePlanForUser(
-      userId,
       subscriptionId,
       dto.newPlanId,
       {

@@ -38,7 +38,31 @@
         { "name": "billing", "ruleId": "domain_module_folder" },
         { "name": "content", "ruleId": "sub_domain_module_folder" },
         { "name": "identity", "ruleId": "domain_module_folder" },
-        { "name": "shared", "ruleId": "shared_module_folder" }
+        { "name": "shared", "ruleId": "shared_module_folder" },
+        { "name": "monolith", "ruleId": "monolith_module_folder" }
+      ]
+    },
+    "monolith_module_folder": {
+      "name": "monolith",
+      "children": [
+        { "name": "monolith.module.ts" },
+        { "name": "monolith-persistence.module.ts" },
+        { "name": "typeorm-datasource.ts" },
+        { "name": "typeorm-datasource.factory.ts" },
+        { "name": "controller" },
+        { "name": "service" },
+        { "name": "use-case" },
+        { "name": "repository" },
+        { "name": "entity" },
+        { "name": "enum" },
+        { "name": "interface" },
+        { "name": "dto" },
+        { "name": "client" },
+        { "name": "queue" },
+        { "name": "migration" },
+        { "name": "exception" },
+        { "name": "interceptor" },
+        { "name": "model" }
       ]
     },
     "domain_module_folder": {

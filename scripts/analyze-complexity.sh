@@ -21,6 +21,12 @@ MODULES=("billing" "content" "identity")
 OUTPUT_FORMAT="human"  # human or json
 TARGET_MODULE=""
 
+# Thresholds
+THRESHOLD_LARGE_FILE=200        # Lines
+THRESHOLD_HUGE_FILE=500         # Lines (critical)
+THRESHOLD_MAX_DEPENDENCIES=5    # Constructor dependencies
+THRESHOLD_GOD_SERVICE=10        # Dependencies for "god service"
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -54,13 +60,127 @@ count_files() {
     find "$dir" -name "$pattern" -type f 2>/dev/null | wc -l | tr -d ' '
 }
 
-count_lines() {
-    local file="$1"
-    if [ -f "$file" ]; then
-        wc -l < "$file" | tr -d ' '
-    else
-        echo "0"
-    fi
+# ============================================================================
+# NEW: File-Level Complexity Analysis
+# ============================================================================
+
+# Analyze individual files for complexity issues
+analyze_file_complexity() {
+    local module="$1"
+    local module_path="$SRC_DIR/$module"
+    
+    local large_files_count=0
+    local huge_files_count=0
+    local large_files_list=""
+    local huge_files_list=""
+    
+    # Find large files (>200 lines) and huge files (>500 lines)
+    while IFS= read -r file; do
+        if [ -f "$file" ]; then
+            local lines
+            lines=$(wc -l < "$file" | tr -d ' ')
+            local relative_path="${file#$SRC_DIR/}"
+            
+            if [ "$lines" -gt "$THRESHOLD_HUGE_FILE" ]; then
+                huge_files_count=$((huge_files_count + 1))
+                if [ -n "$huge_files_list" ]; then
+                    huge_files_list="$huge_files_list, "
+                fi
+                huge_files_list="$huge_files_list{\"file\": \"$relative_path\", \"lines\": $lines}"
+            elif [ "$lines" -gt "$THRESHOLD_LARGE_FILE" ]; then
+                large_files_count=$((large_files_count + 1))
+                if [ -n "$large_files_list" ]; then
+                    large_files_list="$large_files_list, "
+                fi
+                large_files_list="$large_files_list{\"file\": \"$relative_path\", \"lines\": $lines}"
+            fi
+        fi
+    done < <(find "$module_path" -name "*.ts" -type f 2>/dev/null)
+    
+    cat <<EOF
+{
+    "large_files": {
+        "count": $large_files_count,
+        "threshold": $THRESHOLD_LARGE_FILE,
+        "files": [$large_files_list]
+    },
+    "huge_files": {
+        "count": $huge_files_count,
+        "threshold": $THRESHOLD_HUGE_FILE,
+        "files": [$huge_files_list]
+    }
+}
+EOF
+}
+
+# ============================================================================
+# NEW: Service Dependency Analysis
+# ============================================================================
+
+# Count constructor dependencies in services
+analyze_service_dependencies() {
+    local module="$1"
+    local module_path="$SRC_DIR/$module"
+    
+    local total_services=0
+    local services_over_threshold=0
+    local god_services=0
+    local problematic_services=""
+    local max_deps=0
+    local max_deps_service=""
+    
+    # Find all service files
+    while IFS= read -r service_file; do
+        if [ -f "$service_file" ]; then
+            total_services=$((total_services + 1))
+            local relative_path="${service_file#$SRC_DIR/}"
+            
+            # Count "private readonly" in the file (constructor dependencies)
+            local dep_count
+            dep_count=$(grep -c "private readonly" "$service_file" 2>/dev/null || echo "0")
+            
+            # Track maximum
+            if [ "$dep_count" -gt "$max_deps" ]; then
+                max_deps=$dep_count
+                max_deps_service="$relative_path"
+            fi
+            
+            # Check thresholds
+            # Ensure dep_count is a valid number
+            dep_count=$(echo "$dep_count" | tr -d '\n' | tr -d ' ')
+            [ -z "$dep_count" ] && dep_count=0
+            
+            if [ "$dep_count" -gt "$THRESHOLD_GOD_SERVICE" ]; then
+                god_services=$((god_services + 1))
+                services_over_threshold=$((services_over_threshold + 1))
+                if [ -n "$problematic_services" ]; then
+                    problematic_services="$problematic_services, "
+                fi
+                problematic_services="$problematic_services{\"file\": \"$relative_path\", \"dependencies\": $dep_count, \"severity\": \"critical\"}"
+            elif [ "$dep_count" -gt "$THRESHOLD_MAX_DEPENDENCIES" ]; then
+                services_over_threshold=$((services_over_threshold + 1))
+                if [ -n "$problematic_services" ]; then
+                    problematic_services="$problematic_services, "
+                fi
+                problematic_services="$problematic_services{\"file\": \"$relative_path\", \"dependencies\": $dep_count, \"severity\": \"warning\"}"
+            fi
+        fi
+    done < <(find "$module_path" -name "*.service.ts" -type f 2>/dev/null)
+    
+    cat <<EOF
+{
+    "service_dependencies": {
+        "total_services": $total_services,
+        "services_over_threshold": $services_over_threshold,
+        "god_services": $god_services,
+        "threshold": $THRESHOLD_MAX_DEPENDENCIES,
+        "god_threshold": $THRESHOLD_GOD_SERVICE,
+        "max_dependencies": $max_deps,
+        "max_dependencies_service": "$max_deps_service",
+        "problematic": [$problematic_services]
+    }
+}
+EOF
 }
 
 # ============================================================================
@@ -81,18 +201,6 @@ analyze_local_complexity() {
     # Service analysis
     local service_files=$(find "$module_path" -name "*.service.ts" -type f 2>/dev/null | wc -l | tr -d ' ')
     local usecase_files=$(find "$module_path" -name "*.use-case.ts" -type f 2>/dev/null | wc -l | tr -d ' ')
-    
-    # Large files (cognitive complexity proxy)
-    local large_files=0
-    while IFS= read -r file; do
-        if [ -f "$file" ]; then
-            local lines
-            lines=$(wc -l < "$file" | tr -d ' ')
-            if [ "$lines" -gt 200 ]; then
-                large_files=$((large_files + 1))
-            fi
-        fi
-    done < <(find "$module_path" -name "*.ts" -type f 2>/dev/null)
     
     # Internal imports depth (files importing from same module)
     local internal_imports=$(grep -r "from '\.\./\|from '\./" "$module_path" 2>/dev/null | wc -l | tr -d ' ')
@@ -123,7 +231,6 @@ analyze_local_complexity() {
         "use_cases": $usecase_files,
         "entities": $entity_count,
         "repositories": $repo_count,
-        "large_files_over_200_lines": $large_files,
         "internal_imports": $internal_imports,
         "sub_modules": $submodule_count
     }
@@ -298,21 +405,34 @@ EOF
 }
 
 # ============================================================================
-# Calculate Scores
+# Calculate Scores (UPDATED with new metrics)
 # ============================================================================
 
 calculate_scores() {
     local total_files="$1"
     local large_files="$2"
-    local boundary_violations="$3"
-    local fan_out="$4"
-    local unsafe_transactions="$5"
+    local huge_files="$3"
+    local god_services="$4"
+    local services_over_threshold="$5"
+    local boundary_violations="$6"
+    local fan_out="$7"
+    local unsafe_transactions="$8"
     
     # Local complexity score (0-100, lower is better)
     local local_score=0
-    [ "$total_files" -gt 50 ] && local_score=$((local_score + 20))
-    [ "$total_files" -gt 100 ] && local_score=$((local_score + 20))
-    [ "$large_files" -gt 0 ] && local_score=$((local_score + large_files * 10))
+    
+    # File count penalties
+    [ "$total_files" -gt 50 ] && local_score=$((local_score + 10))
+    [ "$total_files" -gt 100 ] && local_score=$((local_score + 15))
+    
+    # Large file penalties
+    [ "$large_files" -gt 0 ] && local_score=$((local_score + large_files * 5))
+    [ "$huge_files" -gt 0 ] && local_score=$((local_score + huge_files * 15))
+    
+    # Service dependency penalties (NEW)
+    [ "$services_over_threshold" -gt 0 ] && local_score=$((local_score + services_over_threshold * 10))
+    [ "$god_services" -gt 0 ] && local_score=$((local_score + god_services * 20))
+    
     [ "$local_score" -gt 100 ] && local_score=100
     
     # Global complexity score (0-100, lower is better)
@@ -350,7 +470,7 @@ EOF
 }
 
 # ============================================================================
-# Human-Readable Output
+# Human-Readable Output (UPDATED)
 # ============================================================================
 
 print_header() {
@@ -371,19 +491,24 @@ print_module_report() {
     local services="$7"
     local use_cases="$8"
     local large_files="$9"
-    local boundary_violations="${10}"
-    local fan_out="${11}"
-    local facade_usage="${12}"
-    local queue_producers="${13}"
-    local queue_consumers="${14}"
-    local external_clients="${15}"
-    local unsafe_transactions="${16}"
-    local total_repos="${17}"
-    local proper_repos="${18}"
-    local local_score="${19}"
-    local global_score="${20}"
-    local overall="${21}"
-    local rating="${22}"
+    local huge_files="${10}"
+    local services_over_threshold="${11}"
+    local god_services="${12}"
+    local max_deps="${13}"
+    local max_deps_service="${14}"
+    local boundary_violations="${15}"
+    local fan_out="${16}"
+    local facade_usage="${17}"
+    local queue_producers="${18}"
+    local queue_consumers="${19}"
+    local external_clients="${20}"
+    local unsafe_transactions="${21}"
+    local total_repos="${22}"
+    local proper_repos="${23}"
+    local local_score="${24}"
+    local global_score="${25}"
+    local overall="${26}"
+    local rating="${27}"
     
     echo "┌──────────────────────────────────────────────────────────────────────────────┐"
     echo "│ MODULE: $module"
@@ -399,7 +524,35 @@ print_module_report() {
     echo "  Queue Layer:        $queue_files"
     echo "  Services:           $services"
     echo "  Use Cases:          $use_cases"
-    echo "  Large Files (>200): $large_files"
+    echo ""
+    
+    echo "  FILE SIZE ANALYSIS"
+    echo "  ──────────────────"
+    if [ "$huge_files" -gt 0 ]; then
+        echo "  Huge Files (>500):  $huge_files ❌ CRITICAL"
+    else
+        echo "  Huge Files (>500):  0 ✅"
+    fi
+    if [ "$large_files" -gt 0 ]; then
+        echo "  Large Files (>200): $large_files ⚠️"
+    else
+        echo "  Large Files (>200): 0 ✅"
+    fi
+    echo ""
+    
+    echo "  SERVICE DEPENDENCY ANALYSIS"
+    echo "  ───────────────────────────"
+    if [ "$god_services" -gt 0 ]; then
+        echo "  God Services (>10 deps):    $god_services ❌ CRITICAL"
+    fi
+    if [ "$services_over_threshold" -gt 0 ]; then
+        echo "  High Deps Services (>5):    $services_over_threshold ⚠️"
+    else
+        echo "  Services with >5 deps:      0 ✅"
+    fi
+    if [ "$max_deps" -gt 0 ]; then
+        echo "  Highest Dependencies:       $max_deps in $max_deps_service"
+    fi
     echo ""
     
     echo "  GLOBAL COMPLEXITY"
@@ -456,6 +609,52 @@ print_entity_collisions() {
     echo ""
 }
 
+print_problematic_files() {
+    local module="$1"
+    local file_json="$2"
+    local service_json="$3"
+    
+    # Extract huge files
+    local huge_files
+    huge_files=$(echo "$file_json" | grep -o '"huge_files":.*"files": \[' | head -1)
+    
+    echo "┌──────────────────────────────────────────────────────────────────────────────┐"
+    echo "│ PROBLEMATIC FILES: $module"
+    echo "└──────────────────────────────────────────────────────────────────────────────┘"
+    
+    # Parse and display huge files
+    echo ""
+    echo "  Files requiring attention:"
+    echo ""
+    
+    # Extract file info from JSON using grep/sed
+    echo "$file_json" | grep -oE '"file": "[^"]*", "lines": [0-9]+' | while read -r line; do
+        local file=$(echo "$line" | sed 's/.*"file": "\([^"]*\)".*/\1/')
+        local lines=$(echo "$line" | sed 's/.*"lines": \([0-9]*\).*/\1/')
+        if [ "$lines" -gt "$THRESHOLD_HUGE_FILE" ]; then
+            echo "  ❌ $file ($lines lines) - CRITICAL: Split this file"
+        elif [ "$lines" -gt "$THRESHOLD_LARGE_FILE" ]; then
+            echo "  ⚠️  $file ($lines lines) - Consider splitting"
+        fi
+    done
+    
+    echo ""
+    echo "  Services with too many dependencies:"
+    echo ""
+    
+    echo "$service_json" | grep -oE '"file": "[^"]*", "dependencies": [0-9]+' | while read -r line; do
+        local file=$(echo "$line" | sed 's/.*"file": "\([^"]*\)".*/\1/')
+        local deps=$(echo "$line" | sed 's/.*"dependencies": \([0-9]*\).*/\1/')
+        if [ "$deps" -gt "$THRESHOLD_GOD_SERVICE" ]; then
+            echo "  ❌ $file ($deps deps) - CRITICAL: God service, needs refactoring"
+        elif [ "$deps" -gt "$THRESHOLD_MAX_DEPENDENCIES" ]; then
+            echo "  ⚠️  $file ($deps deps) - Consider splitting responsibilities"
+        fi
+    done
+    
+    echo ""
+}
+
 # ============================================================================
 # Main Execution
 # ============================================================================
@@ -483,14 +682,20 @@ main() {
         local local_json
         local global_json
         local repo_json
+        local file_json
+        local service_json
         
         local_json=$(analyze_local_complexity "$module")
         global_json=$(analyze_global_complexity "$module")
         repo_json=$(check_repository_encapsulation "$module")
+        file_json=$(analyze_file_complexity "$module")
+        service_json=$(analyze_service_dependencies "$module")
         
         # Extract values for scoring
         local total_files core_files http_files persistence_files queue_files
-        local services use_cases large_files internal_imports
+        local services use_cases internal_imports
+        local large_files huge_files
+        local services_over_threshold god_services max_deps max_deps_service
         local boundary_violations fan_out facade_usage
         local queue_producers queue_consumers external_clients
         local transactional_total transactional_with_conn unsafe_transactions
@@ -503,7 +708,21 @@ main() {
         queue_files=$(echo "$local_json" | grep '"queue":' | grep -oE '[0-9]+')
         services=$(echo "$local_json" | grep '"services":' | grep -oE '[0-9]+')
         use_cases=$(echo "$local_json" | grep '"use_cases":' | grep -oE '[0-9]+')
-        large_files=$(echo "$local_json" | grep '"large_files_over_200_lines":' | sed 's/.*: *//' | tr -d ' ,')
+        
+        # File complexity
+        large_files=$(echo "$file_json" | grep '"large_files":' -A2 | grep '"count":' | grep -oE '[0-9]+' | head -1)
+        huge_files=$(echo "$file_json" | grep '"huge_files":' -A2 | grep '"count":' | grep -oE '[0-9]+' | head -1)
+        [ -z "$large_files" ] && large_files=0
+        [ -z "$huge_files" ] && huge_files=0
+        
+        # Service dependencies
+        services_over_threshold=$(echo "$service_json" | grep '"services_over_threshold":' | grep -oE '[0-9]+')
+        god_services=$(echo "$service_json" | grep '"god_services":' | grep -oE '[0-9]+')
+        max_deps=$(echo "$service_json" | grep '"max_dependencies":' | grep -oE '[0-9]+')
+        max_deps_service=$(echo "$service_json" | grep '"max_dependencies_service":' | sed 's/.*: *"\([^"]*\)".*/\1/')
+        [ -z "$services_over_threshold" ] && services_over_threshold=0
+        [ -z "$god_services" ] && god_services=0
+        [ -z "$max_deps" ] && max_deps=0
         
         boundary_violations=$(echo "$global_json" | grep '"boundary_violations":' | grep -oE '[0-9]+')
         fan_out=$(echo "$global_json" | grep '"fan_out":' | grep -oE '[0-9]+')
@@ -516,9 +735,9 @@ main() {
         total_repos=$(echo "$repo_json" | grep '"total":' | grep -oE '[0-9]+')
         proper_repos=$(echo "$repo_json" | grep '"using_default_typeorm_repository":' | grep -oE '[0-9]+')
         
-        # Calculate scores
+        # Calculate scores with new metrics
         local scores_json
-        scores_json=$(calculate_scores "$total_files" "$large_files" "$boundary_violations" "$fan_out" "$unsafe_transactions")
+        scores_json=$(calculate_scores "$total_files" "$large_files" "$huge_files" "$god_services" "$services_over_threshold" "$boundary_violations" "$fan_out" "$unsafe_transactions")
         
         local local_score global_score overall rating
         local_score=$(echo "$scores_json" | grep '"local_complexity":' | grep -oE '[0-9]+')
@@ -529,9 +748,15 @@ main() {
         if [ "$OUTPUT_FORMAT" = "human" ]; then
             print_module_report "$module" "$total_files" "$core_files" "$http_files" \
                 "$persistence_files" "$queue_files" "$services" "$use_cases" "$large_files" \
+                "$huge_files" "$services_over_threshold" "$god_services" "$max_deps" "$max_deps_service" \
                 "$boundary_violations" "$fan_out" "$facade_usage" "$queue_producers" \
                 "$queue_consumers" "$external_clients" "$unsafe_transactions" \
                 "$total_repos" "$proper_repos" "$local_score" "$global_score" "$overall" "$rating"
+            
+            # Print problematic files if any
+            if [ "$large_files" -gt 0 ] || [ "$huge_files" -gt 0 ] || [ "$services_over_threshold" -gt 0 ]; then
+                print_problematic_files "$module" "$file_json" "$service_json"
+            fi
         fi
         
         # Build JSON output
@@ -552,7 +777,14 @@ main() {
             \"queue\": $queue_files,
             \"services\": $services,
             \"use_cases\": $use_cases,
-            \"large_files\": $large_files
+            \"large_files\": $large_files,
+            \"huge_files\": $huge_files
+        },
+        \"service_dependencies\": {
+            \"services_over_threshold\": $services_over_threshold,
+            \"god_services\": $god_services,
+            \"max_dependencies\": $max_deps,
+            \"max_dependencies_service\": \"$max_deps_service\"
         },
         \"global\": {
             \"boundary_violations\": $boundary_violations,
@@ -582,6 +814,12 @@ main() {
     # Final JSON output
     local final_json="{
     \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\",
+    \"thresholds\": {
+        \"large_file_lines\": $THRESHOLD_LARGE_FILE,
+        \"huge_file_lines\": $THRESHOLD_HUGE_FILE,
+        \"max_service_dependencies\": $THRESHOLD_MAX_DEPENDENCIES,
+        \"god_service_dependencies\": $THRESHOLD_GOD_SERVICE
+    },
     \"entity_collisions\": $collision_count,
     \"modules\": $json_modules
 }"

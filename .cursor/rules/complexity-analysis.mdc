@@ -42,12 +42,25 @@ bash scripts/analyze-complexity.sh content --json
 
 ### Metrics and Thresholds
 
-| Metric | Good | Moderate | Concerning |
-|--------|------|----------|------------|
-| Total Files | < 50 | 50-100 | > 100 |
-| Large Files (>200 lines) | 0 | 1-3 | > 3 |
-| Services per Module | < 10 | 10-20 | > 20 |
-| Internal Import Depth | < 50 | 50-100 | > 100 |
+| Metric | Good | Moderate | Concerning | Critical |
+|--------|------|----------|------------|----------|
+| Total Files | < 50 | 50-100 | > 100 | - |
+| Large Files (>200 lines) | 0 | 1-3 | 4-6 | > 6 |
+| Huge Files (>500 lines) | 0 | - | 1 | > 1 |
+| Service Dependencies | ≤ 5 | 6-7 | 8-10 | > 10 (God Service) |
+| Services per Module | < 10 | 10-20 | > 20 | - |
+
+### File Size Analysis
+
+The script now detects:
+- **Large Files (>200 lines)**: Should be split into smaller focused files
+- **Huge Files (>500 lines)**: CRITICAL - Must be refactored immediately
+
+### Service Dependency Analysis
+
+The script now counts `private readonly` in constructors:
+- **> 5 dependencies**: Warning - consider splitting responsibilities
+- **> 10 dependencies**: CRITICAL "God Service" - needs immediate refactoring
 
 ### Qualitative Checklist
 
@@ -59,15 +72,19 @@ When reviewing local complexity, verify:
 4. **File Size**: Are files under 200 lines? (Split if larger)
 5. **Service Focus**: Does each service have a clear, single purpose?
 6. **Use Case Clarity**: Are use cases for orchestration only, not business logic?
+7. **Dependency Count**: Does each service have ≤ 5 constructor dependencies?
 
 ### Red Flags (Local)
 
+- **God Service**: Service with more than 10 injected dependencies (e.g., `subscription-billing.service.ts` with 10 deps)
+- **Huge File**: File with more than 500 lines (e.g., 754 lines)
 - Service with more than 5 injected dependencies
-- File with more than 300 lines
+- File with more than 200 lines
 - Folder with more than 20 files at same level
 - Mixed vocabulary (e.g., "User" and "Subscriber" in same service)
 - Business logic in controllers
 - Repository methods exposing QueryBuilder
+- Long-running transaction orchestrating many services
 
 ---
 
@@ -174,6 +191,20 @@ After running `scripts/analyze-complexity.sh`, interpret scores:
 | 41-60 | MODERATE | Review and plan improvements |
 | 61-80 | CONCERNING | Prioritize refactoring |
 | 81-100 | CRITICAL | Immediate architectural review needed |
+
+### Score Calculation
+
+**Local Score** considers:
+- File count penalties (+10 for >50 files, +15 more for >100)
+- Large file penalties (+5 per file >200 lines)
+- Huge file penalties (+15 per file >500 lines)
+- High dependency services (+10 per service >5 deps)
+- God services (+20 per service >10 deps)
+
+**Global Score** considers:
+- Boundary violations (+25 each)
+- Fan-out beyond 2 (+10 per extra dependency)
+- Unsafe transactions (+15 each)
 
 ---
 

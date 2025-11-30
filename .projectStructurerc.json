@@ -147,6 +147,10 @@
           "name": "enum",
           "children": [{ "ruleId": "file_name" }]
         },
+        {
+          "name": "interface",
+          "children": [{ "ruleId": "file_name" }]
+        },
         { "name": "model", "children": [{ "ruleId": "file_name" }] },
         { "name": "service", "children": [{ "ruleId": "file_name" }] },
         { "name": "use-case", "ruleId": "use_case_folder" },

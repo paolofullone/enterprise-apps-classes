@@ -19,7 +19,6 @@ import { ChargeType } from '@billingModule/core/enum/charge-type.enum';
 import { SubscriptionStatus } from '@billingModule/core/enum/subscription-status.enum';
 import { TaxProvider } from '@billingModule/core/enum/tax-provider.enum';
 import { TaxConfiguration } from '@billingModule/core/interface/tax-calculation.interface';
-import { ClsService } from 'nestjs-cls';
 
 /**
  * SUBSCRIPTION BILLING SERVICE
@@ -51,7 +50,6 @@ export class SubscriptionBillingService {
     private readonly invoiceGeneratorService: InvoiceGeneratorService,
     private readonly creditManagerService: CreditManagerService,
     private readonly addOnManagerService: AddOnManagerService,
-    private readonly clsService: ClsService,
     private readonly appLogger: AppLogger,
   ) {}
 
@@ -79,6 +77,7 @@ export class SubscriptionBillingService {
    */
   @Transactional({ connectionName: 'billing' })
   async changePlan(
+    userId: string,
     newPlanId: string,
     options: {
       effectiveDate?: Date;
@@ -91,7 +90,6 @@ export class SubscriptionBillingService {
     immediateCharge: number;
     nextBillingDate: Date;
   }> {
-    const userId = this.clsService.get('userId');
     // Step 1: Load subscription and validate
     const subscription = await this.subscriptionRepository.findOne({
       where: { userId, status: SubscriptionStatus.Active },
@@ -321,7 +319,6 @@ export class SubscriptionBillingService {
     prorationCharge: number;
     addOnsRemoved: number;
   }> {
-    const userId = this.clsService.get('userId');
     // Step 1: Load subscription with ownership validation
     const subscription = await this.subscriptionRepository.findOne({
       where: { id: subscriptionId, userId, status: SubscriptionStatus.Active },

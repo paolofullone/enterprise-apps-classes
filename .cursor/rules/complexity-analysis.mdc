@@ -1,0 +1,226 @@
+---
+description: "Run with: @complexity-analysis or 'analyze complexity [module]'"
+globs: []
+alwaysApply: false
+---
+
+# Complexity Analysis Rule
+
+**ACTIVATION**: This rule should ONLY be used when the user explicitly requests complexity analysis using:
+- `@complexity-analysis` mention in chat
+- Commands like "analyze complexity", "check complexity", "run complexity analysis"
+- Questions about module coupling, cohesion, or architectural boundaries
+- Requests to audit or review module architecture
+
+**DO NOT** apply this rule automatically for general coding tasks, file edits, or feature development.
+
+---
+
+This rule provides guidelines for analyzing local and global complexity in the Fakeflix modular architecture.
+
+## Running the Complexity Analysis Script
+
+**For quantitative metrics, run the analysis script:**
+
+```bash
+# Analyze all modules
+bash scripts/analyze-complexity.sh
+
+# Analyze specific module
+bash scripts/analyze-complexity.sh content
+
+# Get JSON output only (for programmatic use)
+bash scripts/analyze-complexity.sh --json
+bash scripts/analyze-complexity.sh content --json
+```
+
+**Interpret the output against the thresholds below.**
+
+---
+
+## Local Complexity (Within a Module)
+
+### Metrics and Thresholds
+
+| Metric | Good | Moderate | Concerning |
+|--------|------|----------|------------|
+| Total Files | < 50 | 50-100 | > 100 |
+| Large Files (>200 lines) | 0 | 1-3 | > 3 |
+| Services per Module | < 10 | 10-20 | > 20 |
+| Internal Import Depth | < 50 | 50-100 | > 100 |
+
+### Qualitative Checklist
+
+When reviewing local complexity, verify:
+
+1. **Single Responsibility**: Does the module focus on ONE business capability?
+2. **Layer Separation**: Is code properly organized in `core/`, `http/`, `persistence/`, `queue/`?
+3. **Cohesive Language**: Do all terms belong to the same Ubiquitous Language?
+4. **File Size**: Are files under 200 lines? (Split if larger)
+5. **Service Focus**: Does each service have a clear, single purpose?
+6. **Use Case Clarity**: Are use cases for orchestration only, not business logic?
+
+### Red Flags (Local)
+
+- Service with more than 5 injected dependencies
+- File with more than 300 lines
+- Folder with more than 20 files at same level
+- Mixed vocabulary (e.g., "User" and "Subscriber" in same service)
+- Business logic in controllers
+- Repository methods exposing QueryBuilder
+
+---
+
+## Global Complexity (Between Modules)
+
+### Metrics and Thresholds
+
+| Metric | Good | Moderate | Critical |
+|--------|------|----------|----------|
+| Boundary Violations | 0 | 1-2 | > 2 |
+| Fan-Out (dependencies) | 0-2 | 3-4 | > 4 |
+| Unsafe Transactions | 0 | 1 | > 1 |
+| Entity Collisions | 0 | - | Any > 0 |
+
+### Qualitative Checklist
+
+When reviewing global complexity, verify:
+
+1. **Facade Usage**: Is all inter-module communication via `PublicApiProvider` or `Facade`?
+2. **No Direct Imports**: Are there NO imports from other modules' `core/` or `persistence/`?
+3. **Named Connections**: Do all `@Transactional` have `connectionName`?
+4. **Async Preference**: Is async communication (queues) preferred over sync calls?
+5. **Contract Stability**: Are public APIs stable and documented?
+6. **Failure Isolation**: Can this module fail without cascading to others?
+
+### Red Flags (Global)
+
+- Import from `module/other-module/core/` or `module/other-module/persistence/`
+- `@Transactional()` without `connectionName` parameter
+- Same `@Entity({ name: 'X' })` in multiple modules
+- Circular dependencies between modules
+- Direct repository injection from another module
+- HTTP client as primary communication (should be queues for internal)
+
+---
+
+## Boundary Violations
+
+A boundary violation occurs when a module imports internal implementation details from another module.
+
+### Allowed Imports
+
+```typescript
+// ✅ ALLOWED: Import from public API
+import { BillingPublicApiProvider } from '../billing/integration/provider/public-api.provider';
+
+// ✅ ALLOWED: Import from shared module
+import { DefaultEntity } from '../shared/core/model/default.model';
+
+// ✅ ALLOWED: Import from shared interfaces
+import { BillingSubscriptionStatusApi } from '../shared/module/integration/interface/billing-integration.interface';
+```
+
+### Forbidden Imports
+
+```typescript
+// ❌ FORBIDDEN: Import from another module's core
+import { SubscriptionService } from '../billing/core/service/subscription.service';
+
+// ❌ FORBIDDEN: Import from another module's persistence
+import { SubscriptionEntity } from '../billing/persistence/entity/subscription.entity';
+import { SubscriptionRepository } from '../billing/persistence/repository/subscription.repository';
+
+// ❌ FORBIDDEN: Import from another module's internal models
+import { Subscription } from '../billing/core/model/subscription.model';
+```
+
+---
+
+## Transaction Safety
+
+All write operations must use `@Transactional` with explicit `connectionName`.
+
+### Correct Pattern
+
+```typescript
+@Injectable()
+export class SubscriptionService {
+  @Transactional({ connectionName: 'billing' })  // ✅ Explicit connection
+  async createSubscription(data: CreateSubscriptionDto) {
+    // ...
+  }
+}
+```
+
+### Connection Name Mapping
+
+| Module | Connection Name |
+|--------|----------------|
+| billing | `'billing'` |
+| content | `'content'` |
+| identity | `'identity'` |
+
+---
+
+## Score Interpretation
+
+After running `scripts/analyze-complexity.sh`, interpret scores:
+
+| Score Range | Rating | Action |
+|-------------|--------|--------|
+| 0-20 | EXCELLENT | No action needed |
+| 21-40 | GOOD | Minor improvements possible |
+| 41-60 | MODERATE | Review and plan improvements |
+| 61-80 | CONCERNING | Prioritize refactoring |
+| 81-100 | CRITICAL | Immediate architectural review needed |
+
+---
+
+## Decision Matrix
+
+When the script detects issues, take these actions:
+
+### Boundary Violations Detected
+
+1. Identify the violating import
+2. Check if a `PublicApiProvider` exists for that module
+3. If not, create one exposing only needed functionality
+4. Replace direct import with facade usage
+5. Re-run script to verify fix
+
+### Entity Collisions Detected
+
+1. Identify duplicate entity names
+2. Prefix entity names with module name (e.g., `BillingPlan`, `ContentPlan`)
+3. Update migrations if needed
+4. Re-run script to verify fix
+
+### High Fan-Out Detected
+
+1. Review if all dependencies are truly needed
+2. Consider if some dependencies should be async (queue-based)
+3. Check if module is trying to do too much (should be split)
+
+### Unsafe Transactions Detected
+
+1. Add `connectionName` parameter to `@Transactional`
+2. Match connection name to module's DataSource name
+3. Verify transaction is actually needed (only for writes)
+
+---
+
+## Integration with Other Rules
+
+This rule complements:
+
+- `architecture-rules.mdc` - General architectural principles
+- `domain-identification-agent.mdc` - Domain boundary identification
+
+When architectural questions arise, load relevant documentation:
+
+```
+docs/MODULAR-ARCHITECTURE-GUIDELINES.md  - 10 principles, detailed patterns
+docs/ARCHITECTURE-GUIDELINES.md          - Layer structure, naming conventions
+docs/DDD-STRATEGIC-DESIGN-THEORY.md      - Bounded context theory
+```

@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { DomainEvent } from '../../../shared/domain/event/domain-event.interface';
-import Decimal from 'decimal.js';
+import { Decimal } from 'decimal.js';
 
 /**
  * Payload do evento para serialização

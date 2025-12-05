@@ -24,6 +24,8 @@ import { SubscriptionDiscountRepository } from '@billingModule/subscription/pers
 import { SubscriptionMapper } from '@billingModule/subscription/persistence/mapper/subscription.mapper';
 import { SubscriptionController } from '@billingModule/subscription/http/rest/controller/subscription.controller';
 import { SubscriptionBillingController } from '@billingModule/subscription/http/rest/controller/subscription-billing.controller';
+import { ChangePlanUseCase } from '@billingModule/subscription/core/use-case/change-plan';
+import { ProrationCalculatorDomainService } from '@billingModule/subscription/domain/service/proration-calculator.domain-service';
 
 // Invoice feature
 import { InvoiceService } from '@billingModule/invoice/core/service/invoice.service';
@@ -88,6 +90,12 @@ import { TaxCalculationSummaryRepository } from '@billingModule/tax/persistence/
     SubscriptionAddOnRepository,
     SubscriptionDiscountRepository,
     SubscriptionMapper,
+
+    // Domain Services
+    ProrationCalculatorDomainService,
+
+    // Use Cases
+    ChangePlanUseCase,
 
     // Invoice
     InvoiceService,

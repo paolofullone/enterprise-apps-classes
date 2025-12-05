@@ -21,19 +21,23 @@ Criar o Use Case `ChangePlanUseCase` que orquestra a mudança de plano usando o 
 ## Contexto para IA
 
 ### Documento de Referência
+
 - `docs/REFACTORING-CHANGE-PLAN-TO-DDD.md` - Seção "Change Plan Use Case"
 
 ### Padrões a Seguir
+
 - Services existentes: `src/module/billing/subscription/core/service/subscription-billing.service.ts`
 - Use Cases (se existirem): `src/module/content/admin/core/use-case/`
 
 ### Princípios do Use Case
+
 - **Orquestração apenas**: Não contém lógica de negócio (essa está no Aggregate)
 - **Single responsibility**: Coordena o fluxo
 - **Transacional**: Usa `@Transactional({ connectionName: 'billing' })`
 - **Salva eventos no Outbox**: Na mesma transação do aggregate
 
 ### Constraints
+
 - Use Cases ficam em `subscription/core/use-case/` (dentro da feature folder)
 - Domain Services ficam em `subscription/domain/service/`
 - Use Case injeta repositórios diretamente (não usa interfaces)
@@ -43,17 +47,17 @@ Criar o Use Case `ChangePlanUseCase` que orquestra a mudança de plano usando o 
 
 ## Arquivos a Criar
 
-| # | Arquivo | Descrição |
-|---|---------|-----------|
-| 1 | `src/module/billing/subscription/core/use-case/change-plan/change-plan.command.ts` | Command (input) |
-| 2 | `src/module/billing/subscription/core/use-case/change-plan/change-plan.use-case.ts` | Use Case |
-| 3 | `src/module/billing/subscription/core/use-case/change-plan/index.ts` | Barrel export |
-| 4 | `src/module/billing/subscription/domain/service/proration-calculator.domain-service.ts` | Domain Service |
+| #   | Arquivo                                                                                 | Descrição       |
+| --- | --------------------------------------------------------------------------------------- | --------------- |
+| 1   | `src/module/billing/subscription/core/use-case/change-plan/change-plan.command.ts`      | Command (input) |
+| 2   | `src/module/billing/subscription/core/use-case/change-plan/change-plan.use-case.ts`     | Use Case        |
+| 3   | `src/module/billing/subscription/core/use-case/change-plan/index.ts`                    | Barrel export   |
+| 4   | `src/module/billing/subscription/domain/service/proration-calculator.domain-service.ts` | Domain Service  |
 
 ## Arquivos a Modificar
 
-| Arquivo | Mudança |
-|---------|---------|
+| Arquivo                                | Mudança                             |
+| -------------------------------------- | ----------------------------------- |
 | `src/module/billing/billing.module.ts` | Registrar Use Case e Domain Service |
 
 ---
@@ -78,7 +82,7 @@ mkdir -p src/module/billing/subscription/domain/service
 ```typescript
 /**
  * Command para mudança de plano.
- * 
+ *
  * Imutável, contém apenas dados de entrada.
  * Validação de formato pode ser feita aqui (via class-validator se desejado).
  */
@@ -88,22 +92,22 @@ export class ChangePlanCommand {
      * ID do usuário que está mudando o plano
      */
     public readonly userId: string,
-    
+
     /**
      * ID da subscription a ser modificada
      */
     public readonly subscriptionId: string,
-    
+
     /**
      * ID do novo plano
      */
     public readonly newPlanId: string,
-    
+
     /**
      * Data efetiva da mudança (opcional, default: agora)
      */
     public readonly effectiveDate?: Date,
-    
+
     /**
      * Se deve manter add-ons compatíveis (opcional, default: true)
      */
@@ -136,7 +140,7 @@ export interface ProrationResult {
 
 /**
  * Domain Service para cálculo de proration.
- * 
+ *
  * Stateless - apenas cálculos puros.
  * Não acessa banco de dados.
  */
@@ -144,7 +148,7 @@ export interface ProrationResult {
 export class ProrationCalculatorDomainService {
   /**
    * Calcula crédito de proration para plano antigo.
-   * 
+   *
    * Crédito = (dias restantes / total dias) * valor do plano
    */
   calculateCredit(
@@ -165,7 +169,7 @@ export class ProrationCalculatorDomainService {
 
   /**
    * Calcula cobrança de proration para plano novo.
-   * 
+   *
    * Cobrança = (dias restantes / total dias) * valor do novo plano
    */
   calculateCharge(
@@ -205,7 +209,11 @@ export class ProrationCalculatorDomainService {
 **Arquivo**: `src/module/billing/subscription/core/use-case/change-plan/change-plan.use-case.ts`
 
 ```typescript
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { Transactional } from 'typeorm-transactional';
 import Decimal from 'decimal.js';
 import { Subscription } from '../../domain/entity/subscription';
@@ -231,7 +239,7 @@ export interface ChangePlanResult {
 
 /**
  * USE CASE: Mudar plano de subscription
- * 
+ *
  * Orquestra o fluxo de mudança de plano:
  * 1. Carrega aggregate
  * 2. Valida ownership
@@ -239,7 +247,7 @@ export interface ChangePlanResult {
  * 4. Executa operação no aggregate
  * 5. Salva aggregate
  * 6. Salva eventos no Outbox
- * 
+ *
  * A lógica de negócio está no Subscription aggregate.
  * Este use case apenas orquestra o fluxo.
  */
@@ -371,17 +379,21 @@ import { ChangePlanUseCase } from './subscription/core/use-case/change-plan';
 import { ProrationCalculatorDomainService } from './subscription/domain/service/proration-calculator.domain-service';
 
 @Module({
-  imports: [/* ... */],
+  imports: [
+    /* ... */
+  ],
   providers: [
     // ... providers existentes
-    
+
     // Domain Services
     ProrationCalculatorDomainService,
-    
+
     // Use Cases
     ChangePlanUseCase,
   ],
-  controllers: [/* ... */],
+  controllers: [
+    /* ... */
+  ],
   exports: [
     // ... exports existentes
     ChangePlanUseCase, // Exportar se for usado por outros módulos
@@ -408,86 +420,29 @@ export class BillingModule {}
 
 ---
 
-## Testes Necessários
+## Remoção do Código Antigo
 
-### Teste de Integração do Use Case
+⚠️ **O código antigo será removido na Phase 6 (Integration)**
 
-```typescript
-// src/module/billing/__test__/integration/change-plan.use-case.spec.ts
-describe('ChangePlanUseCase', () => {
-  let useCase: ChangePlanUseCase;
-  let subscriptionRepository: SubscriptionRepository;
-  let planRepository: PlanRepository;
-  let outboxRepository: OutboxRepository;
+O método `changePlan()` e `changePlanForUser()` do `SubscriptionBillingService` serão:
 
-  beforeAll(async () => {
-    // Setup test module
-  });
+1. **Deprecados** na Phase 6 com feature flag
+2. **Removidos** após validação em produção (ver `PHASE-06-integration.md` - Passo 9)
 
-  describe('execute', () => {
-    it('should change plan and save event to outbox', async () => {
-      // Arrange
-      const subscription = await createTestSubscription();
-      const newPlan = await createTestPlan({ amount: 20 });
-      
-      const command = new ChangePlanCommand(
-        subscription.userId,
-        subscription.id,
-        newPlan.id,
-      );
+**Testes E2E**: Os testes e2e existentes em `src/module/billing/subscription/__test__/e2e/subscription-billing/subscription-billing.spec.ts` já cobrem o fluxo completo de mudança de plano. Quando o controller for atualizado na Phase 6 para usar o novo `ChangePlanUseCase`, esses testes automaticamente validarão o novo fluxo.
 
-      // Act
-      const result = await useCase.execute(command);
+**Não é necessário** criar testes de integração específicos para o Use Case nesta fase, pois:
 
-      // Assert
-      expect(result.newPlanId).toBe(newPlan.id);
-      expect(result.prorationCharge.toNumber()).toBeGreaterThan(0);
-      
-      // Verificar evento no outbox
-      const pendingEvents = await outboxRepository.findPending(10);
-      expect(pendingEvents).toHaveLength(1);
-      expect(pendingEvents[0].eventType).toBe('subscription.plan.changed');
-    });
-
-    it('should throw when subscription not found', async () => {
-      const command = new ChangePlanCommand(
-        'user-123',
-        'non-existent-id',
-        'plan-456',
-      );
-
-      await expect(useCase.execute(command)).rejects.toThrow('not found');
-    });
-
-    it('should throw when user does not own subscription', async () => {
-      const subscription = await createTestSubscription();
-      
-      const command = new ChangePlanCommand(
-        'different-user-id', // Wrong user
-        subscription.id,
-        'plan-456',
-      );
-
-      await expect(useCase.execute(command)).rejects.toThrow('does not belong');
-    });
-
-    it('should rollback on error', async () => {
-      // Test transactional behavior
-    });
-  });
-});
-```
-
-- [ ] Criar testes de integração
-- [ ] Testar cenário de sucesso
-- [ ] Testar cenários de erro
-- [ ] Testar comportamento transacional
+- Os testes e2e já validam o fluxo completo end-to-end
+- Os testes unitários do Domain Entity (`subscription.changePlan()`) já validam a lógica de negócio
+- O Use Case apenas orquestra, sem lógica adicional a testar isoladamente
 
 ---
 
 ## Rollback Plan
 
 1. Remover arquivos criados:
+
    - `src/module/billing/subscription/core/use-case/change-plan/`
    - `src/module/billing/subscription/domain/service/proration-calculator.domain-service.ts`
 
@@ -520,6 +475,7 @@ npm run lint
 O Use Case está pronto mas não está conectado ao Controller ainda. Isso será feito na Phase 6 (Integration).
 
 Isso permite:
+
 - Testar o Use Case isoladamente
 - Manter o sistema funcionando durante a migração
 - Fazer rollback facilmente se necessário
@@ -530,4 +486,3 @@ Isso permite:
 
 Após completar esta fase, prossiga para:
 → `PHASE-05-event-handlers.md` - Criar handlers que reagem aos eventos
-

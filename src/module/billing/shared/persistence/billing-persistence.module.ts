@@ -5,6 +5,7 @@ import { ConfigService } from '@sharedModules/config/service/config.service';
 import { TypeOrmPersistenceModule } from '@sharedModules/persistence/typeorm/typeorm-persistence.module';
 import { DataSource } from 'typeorm';
 import { addTransactionalDataSource } from 'typeorm-transactional';
+import { OutboxRepository } from '../outbox/repository/outbox.repository';
 
 @Module({
   imports: [
@@ -46,5 +47,7 @@ import { addTransactionalDataSource } from 'typeorm-transactional';
       },
     }),
   ],
+  providers: [OutboxRepository],
+  exports: [OutboxRepository],
 })
 export class BillingPersistenceModule {}

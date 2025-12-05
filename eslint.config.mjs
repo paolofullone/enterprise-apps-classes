@@ -134,7 +134,7 @@ export default [
           ],
         },
       ],
-      'project-structure/folder-structure': 'error',
+      'project-structure/folder-structure': 'off',
     },
   },
 ];

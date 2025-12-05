@@ -15,6 +15,7 @@ export const dataSourceOptionsFactory = (
   synchronize: false,
   entities: [
     join(__dirname, '../../**/persistence/entity', '*.entity.{ts,js}'),
+    join(__dirname, '../**/entity', '*.entity.{ts,js}'),
   ],
   migrations: [
     join(__dirname, '../../**/persistence/migration', '*-migration.{ts,js}'),

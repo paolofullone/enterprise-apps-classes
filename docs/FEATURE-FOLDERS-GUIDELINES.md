@@ -444,6 +444,49 @@ billing/
             └── tax-calculator.service.ts   ✅ Used by multiple features
 ```
 
+**4. Cohesive Infrastructure Components (Vertical Slice in shared/)**
+
+When a technical infrastructure has multiple related files (entity, repository, adapter, processor), group them as a **vertical slice within shared/** instead of scattering across technical layers:
+
+```
+// ❌ WRONG: Scattered across technical layers (low cohesion)
+billing/shared/
+├── core/
+│   └── adapter/
+│       └── event-bus.adapter.interface.ts   ❌ Scattered
+└── persistence/
+    ├── entity/
+    │   └── outbox-event.entity.ts           ❌ Scattered
+    └── repository/
+        └── outbox.repository.ts             ❌ Scattered
+
+// ✅ CORRECT: Grouped as vertical slice (high cohesion)
+billing/shared/
+├── outbox/                                  ✅ Cohesive infrastructure
+│   ├── adapter/
+│   │   └── event-bus.adapter.interface.ts
+│   ├── entity/
+│   │   └── outbox-event.entity.ts
+│   ├── repository/
+│   │   └── outbox.repository.ts
+│   └── processor/                           ← Future: easy to extend
+│       └── outbox-processor.service.ts
+└── persistence/
+    ├── billing-persistence.module.ts        ✅ TypeORM config stays here
+    └── typeorm-datasource.factory.ts
+```
+
+**Why vertical slice in shared/?**
+- **High cohesion**: All Domain Events code in one place
+- **Easy navigation**: "Where is outbox code?" → `shared/outbox/`
+- **Extensible**: Adding processor, consumer, etc. is natural
+- **Same principle as features**: Vertical slice applies to infrastructure too
+
+**When to use this pattern?**
+- Infrastructure component has ≥3 related files
+- Files work together as a cohesive unit
+- Component will likely grow (more files in the future)
+
 ### ❌ DO NOT use `shared/` for:
 
 **1. Feature-Specific Entities**
@@ -993,6 +1036,7 @@ feature-name/
 - ✅ Used by ≥3 features
 - ✅ Technical infrastructure (persistence module, datasource)
 - ✅ Cross-cutting technical services (tax calculator)
+- ✅ Cohesive infra with ≥3 files → group as vertical slice (e.g., `shared/outbox/`)
 - ❌ Feature-specific business logic
 - ❌ Feature-specific entities (they have owners!)
 

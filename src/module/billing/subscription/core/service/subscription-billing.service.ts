@@ -309,6 +309,7 @@ export class SubscriptionBillingService {
    * Validates that the subscription belongs to the user before changing the plan.
    * This method is suitable for use in controllers where user context is available.
    *
+   * @deprecated Use ChangePlanUseCase instead. This method will be removed after the new DDD flow is fully validated in production (estimated removal: Q2 2025).
    * @param userId - User ID
    * @param subscriptionId - Subscription ID
    * @param newPlanId - New plan ID
@@ -336,6 +337,15 @@ export class SubscriptionBillingService {
     prorationCharge: number;
     addOnsRemoved: number;
   }> {
+    this.appLogger.log(
+      '[DEPRECATED] changePlanForUser is deprecated. Use ChangePlanUseCase instead.',
+      {
+        userId,
+        subscriptionId,
+        newPlanId,
+      },
+    );
+
     // Step 1: Load subscription with ownership validation
     const subscription = await this.subscriptionRepository.findOne({
       where: { id: subscriptionId, userId, status: SubscriptionStatus.Active },

@@ -18,6 +18,12 @@ import { RemoveAddOnRequestDto } from '@billingModule/subscription/http/rest/dto
 import { ChangePlanResponseDto } from '@billingModule/subscription/http/rest/dto/response/change-plan-response.dto';
 import { SubscriptionAddOnResponseDto } from '@billingModule/subscription/http/rest/dto/response/add-on-response.dto';
 import { RemoveAddOnResponseDto } from '@billingModule/subscription/http/rest/dto/response/remove-add-on-response.dto';
+import { BillingFeatureFlags } from '@billingModule/shared/config/feature-flags';
+import {
+  ChangePlanUseCase,
+  ChangePlanCommand,
+} from '@billingModule/subscription/core/use-case/change-plan';
+import { AppLogger } from '@sharedModules/logger/service/app-logger.service';
 
 @Controller('subscription')
 @UseGuards(AuthGuard)
@@ -26,6 +32,9 @@ export class SubscriptionBillingController {
     private readonly subscriptionBillingService: SubscriptionBillingService,
     private readonly addOnManagerService: AddOnManagerService,
     private readonly clsService: ClsService,
+    private readonly changePlanUseCase: ChangePlanUseCase,
+    private readonly featureFlags: BillingFeatureFlags,
+    private readonly appLogger: AppLogger,
   ) {}
 
   @Post(':id/change-plan')
@@ -36,6 +45,75 @@ export class SubscriptionBillingController {
   ): Promise<ChangePlanResponseDto> {
     // Get userId from request context (set by AuthGuard)
     const userId = dto.userId || this.clsService.get<string>('userId');
+
+    // Feature flag decide qual fluxo usar
+    if (this.featureFlags.useDddChangePlan) {
+      return this.changePlanWithUseCase(subscriptionId, dto, userId);
+    }
+
+    return this.changePlanLegacy(subscriptionId, dto, userId);
+  }
+
+  /**
+   * NOVO FLUXO: Usa Use Case com Domain Entity
+   */
+  private async changePlanWithUseCase(
+    subscriptionId: string,
+    dto: ChangePlanRequestDto,
+    userId: string,
+  ): Promise<ChangePlanResponseDto> {
+    this.appLogger.log('[DDD] Using new change plan flow', {
+      subscriptionId,
+      userId,
+      newPlanId: dto.newPlanId,
+    });
+
+    const command = new ChangePlanCommand(
+      userId,
+      subscriptionId,
+      dto.newPlanId,
+      dto.effectiveDate ? new Date(dto.effectiveDate) : undefined,
+      dto.keepAddOns ?? false,
+    );
+
+    const result = await this.changePlanUseCase.execute(command);
+
+    // Mapear resultado para DTO de resposta
+    // Nota: invoiceId, amountDue, nextBillingDate serão gerados pelos event handlers
+    // Por enquanto retornamos valores temporários
+    return plainToInstance(
+      ChangePlanResponseDto,
+      {
+        subscriptionId: result.subscriptionId,
+        oldPlanId: result.oldPlanId,
+        newPlanId: result.newPlanId,
+        prorationCredit: result.prorationCredit.toNumber(),
+        prorationCharge: result.prorationCharge.toNumber(),
+        invoiceId: '', // Será gerado pelo event handler
+        amountDue: result.netAmount.toNumber(),
+        nextBillingDate: new Date(), // Será calculado pelo event handler
+        addOnsRemoved: result.addOnsRemoved,
+      },
+      {
+        excludeExtraneousValues: true,
+      },
+    );
+  }
+
+  /**
+   * FLUXO ANTIGO: Usa SubscriptionBillingService
+   * @deprecated Será removido após validação do novo fluxo
+   */
+  private async changePlanLegacy(
+    subscriptionId: string,
+    dto: ChangePlanRequestDto,
+    userId: string,
+  ): Promise<ChangePlanResponseDto> {
+    this.appLogger.log('[LEGACY] Using legacy change plan flow', {
+      subscriptionId,
+      userId,
+      newPlanId: dto.newPlanId,
+    });
 
     const result = await this.subscriptionBillingService.changePlanForUser(
       userId,

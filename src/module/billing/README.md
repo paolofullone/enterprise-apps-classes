@@ -197,6 +197,25 @@ POST /subscription/sub-123/change-plan
 | `InvoiceGeneratorService` | Generate invoices |
 | `DunningManagerService` | Handle payment failures |
 
+## Feature Flags
+
+The billing module uses feature flags for gradual migration and safe rollback:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BILLING_USE_DDD_CHANGE_PLAN` | `false` | If `true`, uses the new DDD flow for change plan. If `false`, uses the legacy flow. |
+| `BILLING_SHADOW_MODE` | `false` | If `true`, runs both flows and compares results (useful for validation in staging). |
+
+### Example Configuration
+
+```bash
+# Use new DDD flow
+BILLING_USE_DDD_CHANGE_PLAN=true
+
+# Enable shadow mode (for validation)
+BILLING_SHADOW_MODE=true
+```
+
 ## Related Documentation
 
 - [Architecture Guidelines](../../../docs/ARCHITECTURE-GUIDELINES.md)

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ClsModule } from 'nestjs-cls';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '@sharedModules/auth/auth.module';
+import { ConfigModule } from '@sharedModules/config/config.module';
 import { LoggerModule } from '@sharedModules/logger/logger.module';
 
 // Shared infrastructure (only persistence module - NOT a feature module)
@@ -72,8 +73,12 @@ import { EVENT_BUS_ADAPTER } from '@billingModule/shared/outbox/adapter/event-bu
 import { OnPlanChangedGenerateInvoiceHandler } from '@billingModule/invoice/core/event-handler/on-plan-changed-generate-invoice.handler';
 import { OnPlanChangedIssueCreditHandler } from '@billingModule/credit/core/event-handler/on-plan-changed-issue-credit.handler';
 
+// Feature Flags
+import { BillingFeatureFlags } from '@billingModule/shared/config/feature-flags';
+
 @Module({
   imports: [
+    ConfigModule.forRoot(),
     ClsModule.forRoot({
       global: true,
       middleware: { mount: true },
@@ -153,6 +158,9 @@ import { OnPlanChangedIssueCreditHandler } from '@billingModule/credit/core/even
     OnPlanChangedGenerateInvoiceHandler,
     OnPlanChangedIssueCreditHandler,
     EventDispatcherService,
+
+    // Feature Flags
+    BillingFeatureFlags,
   ],
   controllers: [
     SubscriptionController,
@@ -161,6 +169,6 @@ import { OnPlanChangedIssueCreditHandler } from '@billingModule/credit/core/even
     CreditController,
     UsageController,
   ],
-  exports: [BillingPublicApiProvider],
+  exports: [BillingPublicApiProvider, BillingFeatureFlags],
 })
 export class BillingModule {}

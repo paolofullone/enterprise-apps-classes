@@ -8,16 +8,31 @@ import { InvoiceGeneratorService } from '../service/invoice-generator.service';
 import { InvoiceRepository } from '../../persistence/repository/invoice.repository';
 import { InvoiceLineItem } from '../../persistence/entity/invoice-line-item.entity';
 import { ChargeType } from '@billingModule/shared/core/enum/charge-type.enum';
+import { UsageBillingService } from '@billingModule/usage/core/service/usage-billing.service';
+import { TaxCalculatorService } from '@billingModule/tax/core/service/tax-calculator.service';
+import { DiscountEngineService } from '@billingModule/discount/core/service/discount-engine.service';
+import { CreditManagerService } from '@billingModule/credit/core/service/credit-manager.service';
+import {
+  TaxConfiguration,
+  Address,
+} from '@billingModule/tax/core/interface/tax-calculation.interface';
+import { TaxProvider } from '@billingModule/tax/core/enum/tax-provider.enum';
 
 /**
- * Event Handler: Gera invoice quando plano é alterado.
+ * Event Handler: Gera invoice completa quando plano é alterado.
  *
  * Reage ao evento SubscriptionPlanChanged.
- * Cria invoice de proration (cobrança - crédito).
+ * Cria invoice com todos os componentes:
+ * - Proration credit/charge lines
+ * - Usage charges
+ * - Taxes
+ * - Discounts
+ * - Créditos existentes aplicados
  *
  * Importante:
  * - Roda em transação própria (eventual consistency)
  * - Deve ser idempotente (pode receber mesmo evento várias vezes)
+ * - Segue a mesma lógica do fluxo antigo (changePlanForUser) para garantir 100% de cobertura
  */
 @Injectable()
 export class OnPlanChangedGenerateInvoiceHandler {
@@ -26,6 +41,10 @@ export class OnPlanChangedGenerateInvoiceHandler {
     private readonly invoiceGenerator: InvoiceGeneratorService,
     private readonly invoiceRepository: InvoiceRepository,
     private readonly appLogger: AppLogger,
+    private readonly usageBillingService: UsageBillingService,
+    private readonly taxCalculatorService: TaxCalculatorService,
+    private readonly discountEngineService: DiscountEngineService,
+    private readonly creditManagerService: CreditManagerService,
   ) {}
 
   /**
@@ -60,30 +79,8 @@ export class OnPlanChangedGenerateInvoiceHandler {
       return;
     }
 
-    // 2. Calcular valor líquido da proration
-    const credit = new Decimal(event.prorationCredit);
-    const charge = new Decimal(event.prorationCharge);
-    const netAmount = charge.minus(credit);
-
-    // 3. Se valor líquido for positivo, gerar invoice
-    if (netAmount.greaterThan(0)) {
-      await this.generateProrationInvoice(event, netAmount);
-      this.appLogger.log(
-        `Generated proration invoice for ${netAmount.toString()}`,
-        {
-          subscriptionId: event.subscriptionId,
-          netAmount: netAmount.toString(),
-        },
-      );
-    } else {
-      this.appLogger.log(
-        `Net proration is ${netAmount.toString()}. No invoice needed.`,
-        {
-          subscriptionId: event.subscriptionId,
-          netAmount: netAmount.toString(),
-        },
-      );
-    }
+    // 2. Gerar invoice completa com todos os componentes
+    await this.generateCompleteInvoice(event);
   }
 
   /**
@@ -118,55 +115,201 @@ export class OnPlanChangedGenerateInvoiceHandler {
   }
 
   /**
-   * Gera invoice de proration
+   * Gera invoice completa com todos os componentes (proration, usage, taxes, discounts, credits)
    */
-  private async generateProrationInvoice(
+  private async generateCompleteInvoice(
     event: SubscriptionPlanChangedPayload,
-    amount: Decimal,
   ): Promise<void> {
-    // Carrega subscription (ORM entity para o generator existente)
+    // 1. Carregar subscription com todas as relações necessárias
     const subscriptionEntity = await this.subscriptionRepository.findOne({
       where: { id: event.subscriptionId },
-      relations: ['plan'],
+      relations: [
+        'plan',
+        'addOns',
+        'addOns.addOn',
+        'discounts',
+        'discounts.discount',
+      ],
     });
 
     if (!subscriptionEntity) {
       throw new Error(`Subscription ${event.subscriptionId} not found`);
     }
 
-    // Cria line item de proration
-    const lineItem = new InvoiceLineItem({
-      description: `Proration: Plan change from ${event.oldPlanId} to ${event.newPlanId}`,
-      chargeType: ChargeType.Proration,
-      quantity: 1,
-      unitPrice: amount.toNumber(),
-      amount: amount.toNumber(),
-      taxAmount: 0,
-      taxRate: 0,
-      taxProvider: null,
-      taxJurisdiction: null,
-      discountAmount: 0,
-      totalAmount: amount.toNumber(),
-      periodStart: new Date(event.effectiveDate),
-      periodEnd: subscriptionEntity.currentPeriodEnd || new Date(),
-      prorationRate: null,
-      metadata: {
-        effectiveDate: event.effectiveDate,
-        oldPlanId: event.oldPlanId,
-        newPlanId: event.newPlanId,
-        prorationCredit: event.prorationCredit,
-        prorationCharge: event.prorationCharge,
-      },
+    const effectiveDate = new Date(event.effectiveDate);
+    const periodStart = subscriptionEntity.currentPeriodStart || effectiveDate;
+    const periodEnd = subscriptionEntity.currentPeriodEnd || new Date();
+
+    // 2. Criar line items de proration
+    const lineItems: InvoiceLineItem[] = [];
+    const prorationCredit = new Decimal(event.prorationCredit);
+    const prorationCharge = new Decimal(event.prorationCharge);
+
+    // Proration credit line (se houver crédito)
+    if (prorationCredit.greaterThan(0)) {
+      lineItems.push(
+        new InvoiceLineItem({
+          description: `Credit for unused ${event.oldPlanId}`,
+          chargeType: ChargeType.Proration,
+          quantity: 1,
+          unitPrice: prorationCredit.negated().toNumber(), // Crédito é negativo
+          amount: prorationCredit.negated().toNumber(),
+          taxAmount: 0,
+          taxRate: 0,
+          taxProvider: null,
+          taxJurisdiction: null,
+          discountAmount: 0,
+          totalAmount: prorationCredit.negated().toNumber(),
+          periodStart,
+          periodEnd,
+          prorationRate: null,
+          metadata: {
+            effectiveDate: event.effectiveDate,
+            oldPlanId: event.oldPlanId,
+            type: 'credit',
+          },
+        }),
+      );
+    }
+
+    // Proration charge line (se houver cobrança)
+    if (prorationCharge.greaterThan(0)) {
+      lineItems.push(
+        new InvoiceLineItem({
+          description: `Prorated charge for ${event.newPlanId}`,
+          chargeType: ChargeType.Proration,
+          quantity: 1,
+          unitPrice: prorationCharge.toNumber(),
+          amount: prorationCharge.toNumber(),
+          taxAmount: 0,
+          taxRate: 0,
+          taxProvider: null,
+          taxJurisdiction: null,
+          discountAmount: 0,
+          totalAmount: prorationCharge.toNumber(),
+          periodStart: effectiveDate,
+          periodEnd,
+          prorationRate: null,
+          metadata: {
+            effectiveDate: event.effectiveDate,
+            newPlanId: event.newPlanId,
+            type: 'charge',
+          },
+        }),
+      );
+    }
+
+    // 3. Calcular e adicionar usage charges
+    const usageCharges = await this.usageBillingService.calculateUsageCharges(
+      subscriptionEntity,
+      periodStart,
+      effectiveDate,
+    );
+
+    for (const usageCharge of usageCharges) {
+      lineItems.push(
+        new InvoiceLineItem({
+          description: usageCharge.description,
+          chargeType: ChargeType.Usage,
+          quantity: usageCharge.quantity,
+          unitPrice:
+            usageCharge.quantity > 0
+              ? usageCharge.amount / usageCharge.quantity
+              : 0,
+          amount: usageCharge.amount,
+          taxAmount: 0,
+          taxRate: 0,
+          taxProvider: null,
+          taxJurisdiction: null,
+          discountAmount: 0,
+          totalAmount: usageCharge.amount,
+          periodStart,
+          periodEnd: effectiveDate,
+          metadata: { tiers: usageCharge.tiers },
+        }),
+      );
+    }
+
+    // 4. Calcular taxes para todos os line items
+    const taxConfig = await this.getTaxConfiguration(event.userId);
+    const billingAddress: Address = subscriptionEntity.billingAddress || {
+      addressLine1: '',
+      city: '',
+      state: '',
+      zipcode: '',
+      country: 'US',
+    };
+
+    await this.taxCalculatorService.calculateLineTaxes(
+      lineItems,
+      taxConfig,
+      billingAddress,
+    );
+
+    // 5. Aplicar discounts
+    const discounts = subscriptionEntity.discounts.map((sd) => sd.discount);
+    await this.discountEngineService.applyDiscounts(lineItems, discounts, {
+      cascading: true,
+      excludeUsageCharges: false,
     });
 
-    // Usa o InvoiceGenerator existente
-    await this.invoiceGenerator.generateInvoice(
+    // 6. Gerar invoice
+    const invoice = await this.invoiceGenerator.generateInvoice(
       subscriptionEntity,
-      [lineItem],
+      lineItems,
       {
-        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 dias
+        dueDate: effectiveDate,
         immediateCharge: false,
       },
     );
+
+    // 7. Aplicar créditos existentes
+    const availableCredits =
+      await this.creditManagerService.getUserAvailableCredits(event.userId);
+
+    const creditApplications =
+      await this.creditManagerService.applyCreditsToInvoice(
+        invoice,
+        availableCredits,
+      );
+
+    // 8. Atualizar invoice com créditos aplicados
+    invoice.totalCredit = creditApplications.reduce(
+      (sum, c) => sum + c.amount,
+      0,
+    );
+    invoice.amountDue = Math.max(0, invoice.total - invoice.totalCredit);
+
+    this.appLogger.log('Generated complete invoice for plan change', {
+      subscriptionId: event.subscriptionId,
+      invoiceId: invoice.id,
+      total: invoice.total,
+      totalCredit: invoice.totalCredit,
+      amountDue: invoice.amountDue,
+      lineItemsCount: lineItems.length,
+    });
+  }
+
+  /**
+   * Obtém configuração de tax para o usuário
+   * TODO: Carregar do banco de dados/config baseado no userId
+   */
+  private async getTaxConfiguration(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _userId: string,
+  ): Promise<TaxConfiguration> {
+    // TODO: Load from database/config based on userId
+    return {
+      enabled: true,
+      provider: TaxProvider.Standard,
+      businessAddress: {
+        addressLine1: '123 Business St',
+        city: 'San Francisco',
+        state: 'CA',
+        zipcode: '94105',
+        country: 'US',
+      },
+      easyTaxEnabled: false,
+    };
   }
 }

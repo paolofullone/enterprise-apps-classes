@@ -3,6 +3,7 @@
 ## Objetivo
 
 Integrar o novo fluxo DDD ao sistema existente:
+
 1. Atualizar Controller para usar o Use Case
 2. Remover lógica duplicada do Service antigo
 3. Adicionar feature flag para rollback seguro
@@ -30,9 +31,11 @@ Integrar o novo fluxo DDD ao sistema existente:
 ## Contexto para IA
 
 ### Documento de Referência
+
 - `docs/REFACTORING-CHANGE-PLAN-TO-DDD.md` - Seção "Migration Steps"
 
 ### Padrões a Seguir
+
 - Controllers: `src/module/billing/subscription/http/rest/controller/subscription-billing.controller.ts`
 - Feature flags: Variáveis de ambiente ou ConfigService
 
@@ -68,6 +71,7 @@ Integrar o novo fluxo DDD ao sistema existente:
 ```
 
 ### Constraints
+
 - Feature flag permite rollback instantâneo
 - Fluxo antigo permanece funcionando até validação completa
 - Testes E2E cobrem ambos os caminhos
@@ -77,18 +81,18 @@ Integrar o novo fluxo DDD ao sistema existente:
 
 ## Arquivos a Criar
 
-| # | Arquivo | Descrição |
-|---|---------|-----------|
-| 1 | `src/module/billing/config/feature-flags.ts` | Configuração de flags |
-| 2 | `test/e2e/billing/change-plan.e2e-spec.ts` | Teste E2E |
+| #   | Arquivo                                      | Descrição             |
+| --- | -------------------------------------------- | --------------------- |
+| 1   | `src/module/billing/config/feature-flags.ts` | Configuração de flags |
+| 2   | `test/e2e/billing/change-plan.e2e-spec.ts`   | Teste E2E             |
 
 ## Arquivos a Modificar
 
-| Arquivo | Mudança |
-|---------|---------|
-| `src/module/billing/subscription/http/rest/controller/subscription-billing.controller.ts` | Usar Use Case |
-| `src/module/billing/subscription/core/service/subscription-billing.service.ts` | Deprecar método antigo |
-| `.env` ou config | Adicionar feature flag |
+| Arquivo                                                                                   | Mudança                |
+| ----------------------------------------------------------------------------------------- | ---------------------- |
+| `src/module/billing/subscription/http/rest/controller/subscription-billing.controller.ts` | Usar Use Case          |
+| `src/module/billing/subscription/core/service/subscription-billing.service.ts`            | Deprecar método antigo |
+| `.env` ou config                                                                          | Adicionar feature flag |
 
 ---
 
@@ -104,7 +108,7 @@ import { ConfigService } from '@nestjs/config';
 
 /**
  * Feature flags para migração gradual.
- * 
+ *
  * Permite rollback instantâneo em caso de problemas.
  */
 @Injectable()
@@ -114,31 +118,37 @@ export class BillingFeatureFlags {
   /**
    * Se true, usa o novo fluxo DDD para changePlan.
    * Se false, usa o fluxo antigo (SubscriptionBillingService).
-   * 
+   *
    * ENV: BILLING_USE_DDD_CHANGE_PLAN=true|false
    */
   get useDddChangePlan(): boolean {
-    return this.configService.get<string>('BILLING_USE_DDD_CHANGE_PLAN', 'false') === 'true';
+    return (
+      this.configService.get<string>('BILLING_USE_DDD_CHANGE_PLAN', 'false') ===
+      'true'
+    );
   }
 
   /**
    * Se true, loga comparação entre fluxo novo e antigo (shadow mode).
    * Útil para validar que produzem mesmo resultado.
-   * 
+   *
    * ENV: BILLING_SHADOW_MODE=true|false
    */
   get shadowModeEnabled(): boolean {
-    return this.configService.get<string>('BILLING_SHADOW_MODE', 'false') === 'true';
+    return (
+      this.configService.get<string>('BILLING_SHADOW_MODE', 'false') === 'true'
+    );
   }
 }
 ```
 
 - [ ] Criar arquivo
 - [ ] Adicionar ao `.env.example`:
-  ```
-  BILLING_USE_DDD_CHANGE_PLAN=false
-  BILLING_SHADOW_MODE=false
-  ```
+
+```bash
+BILLING_USE_DDD_CHANGE_PLAN=false
+BILLING_SHADOW_MODE=false
+```
 
 ---
 
@@ -173,15 +183,19 @@ import { BillingFeatureFlags } from './config/feature-flags';
 
 ```typescript
 import { BillingFeatureFlags } from '../../../config/feature-flags';
-import { ChangePlanUseCase, ChangePlanCommand } from '../../use-case/change-plan';
+import {
+  ChangePlanUseCase,
+  ChangePlanCommand,
+} from '../../use-case/change-plan';
+import { AppLogger } from '@sharedModules/logger/service/app-logger.service';
 
 @Controller('subscriptions')
 export class SubscriptionBillingController {
   constructor(
     private readonly billingService: SubscriptionBillingService,
     private readonly changePlanUseCase: ChangePlanUseCase, // Adicionar
-    private readonly featureFlags: BillingFeatureFlags,     // Adicionar
-    private readonly logger: Logger,
+    private readonly featureFlags: BillingFeatureFlags, // Adicionar
+    private readonly appLogger: AppLogger,
   ) {}
 
   @Post(':subscriptionId/change-plan')
@@ -194,7 +208,7 @@ export class SubscriptionBillingController {
     if (this.featureFlags.useDddChangePlan) {
       return this.changePlanWithUseCase(subscriptionId, dto, user);
     }
-    
+
     return this.changePlanLegacy(subscriptionId, dto, user);
   }
 
@@ -206,7 +220,11 @@ export class SubscriptionBillingController {
     dto: ChangePlanDto,
     user: AuthenticatedUser,
   ): Promise<ChangePlanResponseDto> {
-    this.logger.log('[DDD] Using new change plan flow');
+    this.appLogger.log('[DDD] Using new change plan flow', {
+      subscriptionId,
+      userId: user.id,
+      newPlanId: dto.newPlanId,
+    });
 
     const command = new ChangePlanCommand(
       user.id,
@@ -239,7 +257,11 @@ export class SubscriptionBillingController {
     dto: ChangePlanDto,
     user: AuthenticatedUser,
   ): Promise<ChangePlanResponseDto> {
-    this.logger.log('[LEGACY] Using legacy change plan flow');
+    this.appLogger.log('[LEGACY] Using legacy change plan flow', {
+      subscriptionId,
+      userId: user.id,
+      newPlanId: dto.newPlanId,
+    });
 
     // Fluxo existente
     const result = await this.billingService.changePlanForUser(
@@ -257,6 +279,7 @@ export class SubscriptionBillingController {
 
 - [ ] Injetar `ChangePlanUseCase` no construtor
 - [ ] Injetar `BillingFeatureFlags` no construtor
+- [ ] Injetar `AppLogger` no construtor (substituir `Logger` se existir)
 - [ ] Adicionar método `changePlanWithUseCase`
 - [ ] Adicionar feature flag check no método principal
 - [ ] Marcar método antigo como `@deprecated`
@@ -273,21 +296,21 @@ private async changePlan(/* ... */): Promise<ChangePlanResponseDto> {
     // Executa ambos e compara (apenas em staging)
     return this.changePlanWithShadowMode(subscriptionId, dto, user);
   }
-  
+
   if (this.featureFlags.useDddChangePlan) {
     return this.changePlanWithUseCase(subscriptionId, dto, user);
   }
-  
+
   return this.changePlanLegacy(subscriptionId, dto, user);
 }
 
 private async changePlanWithShadowMode(/* ... */): Promise<ChangePlanResponseDto> {
   // Executa novo fluxo
   const newResult = await this.changePlanWithUseCase(subscriptionId, dto, user);
-  
+
   // Em transação separada, simula fluxo antigo (read-only)
   // Compara resultados e loga diferenças
-  
+
   return newResult;
 }
 ```
@@ -323,7 +346,7 @@ describe('Change Plan (e2e)', () => {
     await app.init();
 
     dataSource = moduleFixture.get<DataSource>(DataSource);
-    
+
     // Setup: criar usuário e obter token
     authToken = await setupTestUserAndGetToken(app);
   });
@@ -362,7 +385,7 @@ describe('Change Plan (e2e)', () => {
         const outboxEvents = await dataSource
           .getRepository('DomainEventsOutbox')
           .find({ where: { aggregateId: subscription.id } });
-        
+
         expect(outboxEvents).toHaveLength(1);
         expect(outboxEvents[0].eventType).toBe('subscription.plan.changed');
       });
@@ -420,7 +443,9 @@ async function createTestPlan(dataSource: DataSource, overrides = {}) {
   // ...
 }
 
-async function setupTestUserAndGetToken(app: INestApplication): Promise<string> {
+async function setupTestUserAndGetToken(
+  app: INestApplication,
+): Promise<string> {
   // ...
 }
 ```
@@ -473,6 +498,8 @@ describe('Change Plan Event Flow', () => {
 **Arquivo**: `src/module/billing/subscription/core/service/subscription-billing.service.ts`
 
 ```typescript
+import { AppLogger } from '@sharedModules/logger/service/app-logger.service';
+
 /**
  * @deprecated Use ChangePlanUseCase instead.
  * Este método será removido em [DATA].
@@ -482,8 +509,13 @@ async changePlanForUser(
   subscriptionId: string,
   newPlanId: string,
 ): Promise<ChangePlanResult> {
-  console.warn(
+  this.appLogger.log(
     '[DEPRECATED] changePlanForUser is deprecated. Use ChangePlanUseCase.',
+    {
+      userId,
+      subscriptionId,
+      newPlanId,
+    },
   );
   // ... implementação existente
 }
@@ -500,6 +532,7 @@ async changePlanForUser(
 **Quando**: Após o novo fluxo estar estável em produção por pelo menos 1-2 semanas.
 
 **Passos**:
+
 1. Remover variáveis de ambiente `BILLING_USE_DDD_CHANGE_PLAN`
 2. Remover `BillingFeatureFlags` ou o flag específico
 3. Remover método `changePlanLegacy` do controller
@@ -514,6 +547,7 @@ async changePlanForUser(
 **Quando**: Após remover feature flag e validar que tudo funciona.
 
 **Passos**:
+
 1. Remover método `changePlanForUser` do `SubscriptionBillingService`
 2. Remover código relacionado que ficou órfão
 3. Mover lógica reutilizável para Domain Services se necessário
@@ -546,6 +580,7 @@ async changePlanForUser(
 ### Critérios para Rollback
 
 Desativar feature flag se:
+
 - Taxa de erro aumentar > 1%
 - Latência p99 aumentar > 50%
 - Inconsistências nos dados
@@ -562,6 +597,19 @@ Desativar feature flag se:
 
 ## Critérios de Aceitação
 
+### ⚠️ CRITÉRIO CRÍTICO (Prioridade Máxima)
+
+- [ ] **O fluxo novo deve cobrir 100% da lógica de negócio do fluxo antigo**
+  - [ ] Todas as regras de negócio do método `changePlanForUser` foram migradas
+  - [ ] Todos os cálculos (proration, créditos, taxas) produzem resultados idênticos
+  - [ ] Todas as validações (ownership, plan existence, subscription status) foram preservadas
+  - [ ] Todos os efeitos colaterais (eventos, notificações, integrações) foram mantidos
+  - [ ] Comparação lado a lado (shadow mode) validada em ambiente de staging
+  - [ ] Revisão detalhada linha por linha do código antigo vs novo realizada
+  - [ ] Nenhuma lógica de negócio foi deixada de fora ou simplificada incorretamente
+
+### Critérios Técnicos
+
 - [ ] Feature flag funciona corretamente
 - [ ] Controller usa Use Case quando flag ativa
 - [ ] Testes E2E passam para ambos os fluxos
@@ -573,12 +621,12 @@ Desativar feature flag se:
 
 ## Métricas de Sucesso
 
-| Métrica | Baseline (Legado) | Target (DDD) |
-|---------|-------------------|--------------|
-| Latência p50 | X ms | <= X ms |
-| Latência p99 | Y ms | <= Y ms |
-| Taxa de erro | Z% | <= Z% |
-| Eventos/outbox | N/A | < 100 pendentes |
+| Métrica        | Baseline (Legado) | Target (DDD)    |
+| -------------- | ----------------- | --------------- |
+| Latência p50   | X ms              | <= X ms         |
+| Latência p99   | Y ms              | <= Y ms         |
+| Taxa de erro   | Z%                | <= Z%           |
+| Eventos/outbox | N/A               | < 100 pendentes |
 
 ---
 
@@ -597,6 +645,7 @@ curl -X POST http://localhost:3000/admin/reload-config
 ### Rollback Completo
 
 Se precisar reverter código:
+
 1. Reverter PR 6.1
 2. Remover `ChangePlanUseCase` do module
 3. Remover `BillingFeatureFlags`
@@ -621,4 +670,3 @@ Cada migração pode seguir o mesmo padrão de fases.
 - `docs/REFACTORING-CHANGE-PLAN-TO-DDD.md` - Documento completo de referência
 - `docs/TACTICAL-DDD-GUIDELINES.md` - Guidelines de DDD
 - `docs/MODULAR-ARCHITECTURE-GUIDELINES.md` - Guidelines de arquitetura
-

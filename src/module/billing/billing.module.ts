@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ClsModule } from 'nestjs-cls';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '@sharedModules/auth/auth.module';
 import { LoggerModule } from '@sharedModules/logger/logger.module';
 
@@ -61,12 +62,23 @@ import { TaxRateRepository } from '@billingModule/tax/persistence/repository/tax
 import { TaxCalculationErrorRepository } from '@billingModule/tax/persistence/repository/tax-calculation-error.repository';
 import { TaxCalculationSummaryRepository } from '@billingModule/tax/persistence/repository/tax-calculation-summary.repository';
 
+// Outbox & Event Bus
+import { NoopEventBusAdapter } from '@billingModule/shared/outbox/adapter/noop-event-bus.adapter';
+import { OutboxProcessorService } from '@billingModule/shared/outbox/processor/outbox-processor.service';
+import { EventDispatcherService } from '@billingModule/shared/outbox/adapter/event-dispatcher.service';
+import { EVENT_BUS_ADAPTER } from '@billingModule/shared/outbox/adapter/event-bus.adapter.interface';
+
+// Event Handlers
+import { OnPlanChangedGenerateInvoiceHandler } from '@billingModule/invoice/core/event-handler/on-plan-changed-generate-invoice.handler';
+import { OnPlanChangedIssueCreditHandler } from '@billingModule/credit/core/event-handler/on-plan-changed-issue-credit.handler';
+
 @Module({
   imports: [
     ClsModule.forRoot({
       global: true,
       middleware: { mount: true },
     }),
+    ScheduleModule.forRoot(),
     BillingPersistenceModule,
     AuthModule,
     LoggerModule,
@@ -127,6 +139,20 @@ import { TaxCalculationSummaryRepository } from '@billingModule/tax/persistence/
     TaxRateRepository,
     TaxCalculationErrorRepository,
     TaxCalculationSummaryRepository,
+
+    // Event Bus (stub por enquanto)
+    {
+      provide: EVENT_BUS_ADAPTER,
+      useClass: NoopEventBusAdapter,
+    },
+
+    // Outbox Processor
+    OutboxProcessorService,
+
+    // Event Handlers
+    OnPlanChangedGenerateInvoiceHandler,
+    OnPlanChangedIssueCreditHandler,
+    EventDispatcherService,
   ],
   controllers: [
     SubscriptionController,

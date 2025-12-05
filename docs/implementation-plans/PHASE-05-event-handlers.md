@@ -3,6 +3,7 @@
 ## Objetivo
 
 Criar o sistema de processamento de eventos:
+
 1. `OutboxProcessorService` - Processa eventos do Outbox e publica via Event Bus
 2. `OnPlanChangedGenerateInvoiceHandler` - Handler que gera invoice quando plano muda
 3. `OnPlanChangedIssueCreditHandler` - Handler que emite crédito quando aplicável
@@ -27,13 +28,16 @@ Criar o sistema de processamento de eventos:
 ## Contexto para IA
 
 ### Documento de Referência
+
 - `docs/REFACTORING-CHANGE-PLAN-TO-DDD.md` - Seções "Event Handlers" e "Outbox Processor"
 
 ### Padrões a Seguir
+
 - Scheduled tasks: Usar `@Cron` ou `@Interval` do `@nestjs/schedule`
 - Event handlers: Services que processam eventos específicos
 
 ### Constraints
+
 - Event Bus é uma interface (`EventBusAdapter`), implementação real virá depois
 - Outbox Processor roda em intervalo configurável
 - Handlers devem ser idempotentes (podem receber mesmo evento mais de uma vez)
@@ -43,19 +47,19 @@ Criar o sistema de processamento de eventos:
 
 ## Arquivos a Criar
 
-| # | Arquivo | Descrição |
-|---|---------|-----------|
-| 1 | `src/module/billing/shared/persistence/outbox/outbox-processor.service.ts` | Processa outbox |
-| 2 | `src/module/billing/subscription/core/event-handler/on-plan-changed-generate-invoice.handler.ts` | Gera invoice |
-| 3 | `src/module/billing/subscription/core/event-handler/on-plan-changed-issue-credit.handler.ts` | Emite crédito |
-| 4 | `src/module/billing/shared/infrastructure/event/noop-event-bus.adapter.ts` | Implementação stub |
-| 5 | `src/module/billing/subscription/core/event-handler/index.ts` | Barrel export |
+| #   | Arquivo                                                                                     | Descrição          |
+| --- | ------------------------------------------------------------------------------------------- | ------------------ |
+| 1   | `src/module/billing/shared/outbox/processor/outbox-processor.service.ts`                    | Processa outbox    |
+| 2   | `src/module/billing/invoice/core/event-handler/on-plan-changed-generate-invoice.handler.ts` | Gera invoice       |
+| 3   | `src/module/billing/credit/core/event-handler/on-plan-changed-issue-credit.handler.ts`      | Emite crédito      |
+| 4   | `src/module/billing/shared/outbox/adapter/noop-event-bus.adapter.ts`                        | Implementação stub |
+| 5   | `src/module/billing/shared/outbox/adapter/event-dispatcher.service.ts`                      | Dispatcher         |
 
 ## Arquivos a Modificar
 
-| Arquivo | Mudança |
-|---------|---------|
-| `src/module/billing/billing.module.ts` | Registrar handlers e processor |
+| Arquivo                                | Mudança                                     |
+| -------------------------------------- | ------------------------------------------- |
+| `src/module/billing/billing.module.ts` | Registrar handlers e processor              |
 | `src/module/billing/billing.module.ts` | Registrar NoopEventBusAdapter como provider |
 
 ---
@@ -65,9 +69,16 @@ Criar o sistema de processamento de eventos:
 ### Passo 1: Criar estrutura de pastas
 
 ```bash
-mkdir -p src/module/billing/shared/infrastructure/event
-mkdir -p src/module/billing/subscription/core/event-handler
+mkdir -p src/module/billing/invoice/core/event-handler
+mkdir -p src/module/billing/credit/core/event-handler
+mkdir -p src/module/billing/shared/outbox/processor
 ```
+
+**Nota**:
+
+- A pasta `outbox/adapter/` já existe e contém a interface `EventBusAdapter`. O `NoopEventBusAdapter` será criado nessa mesma pasta.
+- A pasta `outbox/processor/` será criada para o `OutboxProcessorService`, seguindo o padrão de vertical slice em `shared/outbox/`.
+- **Handlers ficam nas features que reagem ao evento**: `invoice/` e `credit/` reagem ao evento `SubscriptionPlanChanged`, não em `subscription/`.
 
 - [ ] Criar pastas
 
@@ -75,21 +86,21 @@ mkdir -p src/module/billing/subscription/core/event-handler
 
 ### Passo 2: Criar NoopEventBusAdapter (Stub temporário)
 
-**Arquivo**: `src/module/billing/shared/infrastructure/event/noop-event-bus.adapter.ts`
+**Arquivo**: `src/module/billing/shared/outbox/adapter/noop-event-bus.adapter.ts`
 
 ```typescript
 import { Injectable, Logger } from '@nestjs/common';
 import {
   EventBusAdapter,
   DomainEventPayload,
-} from '../../../shared/core/adapter/event-bus.adapter.interface';
+} from './event-bus.adapter.interface';
 
 /**
  * Implementação stub do EventBusAdapter.
- * 
+ *
  * Apenas loga os eventos - NÃO usa para produção.
  * Será substituído por implementação real (Kafka, RabbitMQ, etc).
- * 
+ *
  * Esta implementação permite testar o fluxo completo
  * antes de ter a infraestrutura de mensageria.
  */
@@ -118,19 +129,24 @@ export class NoopEventBusAdapter implements EventBusAdapter {
 
 ### Passo 3: Criar OutboxProcessorService
 
-**Arquivo**: `src/module/billing/shared/persistence/outbox/outbox-processor.service.ts`
+**Arquivo**: `src/module/billing/shared/outbox/processor/outbox-processor.service.ts`
 
 ```typescript
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+  Inject,
+} from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
-import { OutboxRepository } from './outbox.repository';
-import { OutboxEvent } from './outbox-event.entity';
+import { OutboxRepository } from '../repository/outbox.repository';
+import { OutboxEvent } from '../entity/outbox-event.entity';
 import {
   EventBusAdapter,
   EVENT_BUS_ADAPTER,
   DomainEventPayload,
-} from '../../../shared/core/adapter/event-bus.adapter.interface';
-import { Inject } from '@nestjs/common';
+} from '../adapter/event-bus.adapter.interface';
 
 /**
  * Configuração do processor
@@ -146,13 +162,13 @@ export interface OutboxProcessorConfig {
 
 /**
  * Service que processa eventos do Outbox e publica no Event Bus.
- * 
+ *
  * Fluxo:
  * 1. Busca eventos pendentes (published = false)
  * 2. Converte para DomainEventPayload
  * 3. Publica via EventBusAdapter
  * 4. Marca como publicados
- * 
+ *
  * Características:
  * - Processa em batches para performance
  * - Retry automático (eventos não marcados voltam no próximo ciclo)
@@ -234,10 +250,8 @@ export class OutboxProcessorService implements OnModuleInit, OnModuleDestroy {
         const payload = this.toEventPayload(event);
         await this.eventBus.publish(payload);
         publishedIds.push(event.id);
-        
-        this.logger.debug(
-          `Published event ${event.id}: ${event.eventType}`,
-        );
+
+        this.logger.debug(`Published event ${event.id}: ${event.eventType}`);
       } catch (error) {
         this.logger.error(
           `Failed to publish event ${event.id}: ${event.eventType}`,
@@ -294,9 +308,9 @@ export class OutboxProcessorService implements OnModuleInit, OnModuleDestroy {
 
 ```typescript
 import { ScheduleModule } from '@nestjs/schedule';
-import { OutboxProcessorService } from './infrastructure/event/outbox-processor.service';
-import { NoopEventBusAdapter } from './infrastructure/event/noop-event-bus.adapter';
-import { EVENT_BUS_ADAPTER } from './core/adapter/event-bus.adapter.interface';
+import { OutboxProcessorService } from './shared/outbox/processor/outbox-processor.service';
+import { NoopEventBusAdapter } from './shared/outbox/adapter/noop-event-bus.adapter';
+import { EVENT_BUS_ADAPTER } from './shared/outbox/adapter/event-bus.adapter.interface';
 
 @Module({
   imports: [
@@ -305,13 +319,13 @@ import { EVENT_BUS_ADAPTER } from './core/adapter/event-bus.adapter.interface';
   ],
   providers: [
     // ... outros providers
-    
+
     // Event Bus (stub por enquanto)
     {
       provide: EVENT_BUS_ADAPTER,
       useClass: NoopEventBusAdapter,
     },
-    
+
     // Outbox Processor
     OutboxProcessorService,
   ],
@@ -328,33 +342,42 @@ import { EVENT_BUS_ADAPTER } from './core/adapter/event-bus.adapter.interface';
 
 ### Passo 5: Criar Handler para Geração de Invoice
 
-**Arquivo**: `src/module/billing/subscription/core/event-handler/on-plan-changed-generate-invoice.handler.ts`
+**Arquivo**: `src/module/billing/invoice/core/event-handler/on-plan-changed-generate-invoice.handler.ts`
+
+**Nota**: Handler fica em `invoice/` porque é a feature que **reage** ao evento, não em `subscription/` que emite o evento. Isso mantém baixo acoplamento.
 
 ```typescript
 import { Injectable, Logger } from '@nestjs/common';
 import { Transactional } from 'typeorm-transactional';
 import Decimal from 'decimal.js';
-import { SubscriptionPlanChangedPayload } from '../../domain/event/subscription-plan-changed.event';
-import { SubscriptionRepository } from '../../persistence/repository/subscription.repository';
-import { InvoiceGeneratorService } from '../../../invoice/core/service/invoice-generator.service';
+import { SubscriptionPlanChangedPayload } from '../../../subscription/domain/event/subscription-plan-changed.event';
+import { SubscriptionRepository } from '../../../subscription/persistence/repository/subscription.repository';
+import { InvoiceGeneratorService } from '../service/invoice-generator.service';
+import { InvoiceRepository } from '../../persistence/repository/invoice.repository';
+import { InvoiceLineItem } from '../../persistence/entity/invoice-line-item.entity';
+import { ChargeType } from '@billingModule/shared/core/enum/charge-type.enum';
 
 /**
  * Event Handler: Gera invoice quando plano é alterado.
- * 
+ *
  * Reage ao evento SubscriptionPlanChanged.
  * Cria invoice de proration (cobrança - crédito).
- * 
+ *
  * Importante:
  * - Roda em transação própria (eventual consistency)
  * - Deve ser idempotente (pode receber mesmo evento várias vezes)
  */
 @Injectable()
 export class OnPlanChangedGenerateInvoiceHandler {
-  private readonly logger = new Logger(OnPlanChangedGenerateInvoiceHandler.name);
+  private readonly logger = new Logger(
+    OnPlanChangedGenerateInvoiceHandler.name,
+  );
 
   constructor(
     private readonly subscriptionRepository: SubscriptionRepository,
     private readonly invoiceGenerator: InvoiceGeneratorService,
+    private readonly invoiceRepository: InvoiceRepository,
+    private readonly appLogger: AppLogger,
   ) {}
 
   /**
@@ -362,8 +385,14 @@ export class OnPlanChangedGenerateInvoiceHandler {
    */
   @Transactional({ connectionName: 'billing' })
   async handle(event: SubscriptionPlanChangedPayload): Promise<void> {
-    this.logger.log(
+    this.appLogger.log(
       `Handling SubscriptionPlanChanged for subscription ${event.subscriptionId}`,
+      {
+        subscriptionId: event.subscriptionId,
+        userId: event.userId,
+        oldPlanId: event.oldPlanId,
+        newPlanId: event.newPlanId,
+      },
     );
 
     // 1. Verificar idempotência (já gerou invoice para este evento?)
@@ -373,8 +402,12 @@ export class OnPlanChangedGenerateInvoiceHandler {
     );
 
     if (existingInvoice) {
-      this.logger.warn(
+      this.appLogger.log(
         `Invoice already exists for plan change on ${event.effectiveDate}. Skipping.`,
+        {
+          subscriptionId: event.subscriptionId,
+          effectiveDate: event.effectiveDate,
+        },
       );
       return;
     }
@@ -387,12 +420,20 @@ export class OnPlanChangedGenerateInvoiceHandler {
     // 3. Se valor líquido for positivo, gerar invoice
     if (netAmount.greaterThan(0)) {
       await this.generateProrationInvoice(event, netAmount);
-      this.logger.log(
+      this.appLogger.log(
         `Generated proration invoice for ${netAmount.toString()}`,
+        {
+          subscriptionId: event.subscriptionId,
+          netAmount: netAmount.toString(),
+        },
       );
     } else {
-      this.logger.log(
+      this.appLogger.log(
         `Net proration is ${netAmount.toString()}. No invoice needed.`,
+        {
+          subscriptionId: event.subscriptionId,
+          netAmount: netAmount.toString(),
+        },
       );
     }
   }
@@ -404,8 +445,27 @@ export class OnPlanChangedGenerateInvoiceHandler {
     subscriptionId: string,
     effectiveDate: string,
   ): Promise<boolean> {
-    // TODO: Implementar busca por invoice de proration existente
-    // Pode usar metadata ou uma tabela de correlação evento->invoice
+    const invoices =
+      await this.invoiceRepository.findBySubscriptionId(subscriptionId);
+
+    // Verifica se existe invoice com metadata indicando proration para esta data
+    for (const invoice of invoices) {
+      if (invoice.invoiceLines) {
+        for (const lineItem of invoice.invoiceLines) {
+          // Verifica se é proration e se a data corresponde
+          if (
+            lineItem.chargeType === ChargeType.Proration &&
+            lineItem.metadata &&
+            typeof lineItem.metadata === 'object' &&
+            'effectiveDate' in lineItem.metadata &&
+            lineItem.metadata.effectiveDate === effectiveDate
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+
     return false;
   }
 
@@ -419,21 +479,45 @@ export class OnPlanChangedGenerateInvoiceHandler {
     // Carrega subscription (ORM entity para o generator existente)
     const subscriptionEntity = await this.subscriptionRepository.findOne({
       where: { id: event.subscriptionId },
-      relations: ['user', 'plan'],
+      relations: ['plan'],
     });
 
     if (!subscriptionEntity) {
       throw new Error(`Subscription ${event.subscriptionId} not found`);
     }
 
+    // Cria line item de proration
+    const lineItem = new InvoiceLineItem({
+      description: `Proration: Plan change from ${event.oldPlanId} to ${event.newPlanId}`,
+      chargeType: ChargeType.Proration,
+      quantity: 1,
+      unitPrice: amount.toNumber(),
+      amount: amount.toNumber(),
+      taxAmount: 0,
+      taxRate: 0,
+      taxProvider: null,
+      taxJurisdiction: null,
+      discountAmount: 0,
+      totalAmount: amount.toNumber(),
+      periodStart: new Date(event.effectiveDate),
+      periodEnd: subscriptionEntity.currentPeriodEnd || new Date(),
+      prorationRate: null,
+      metadata: {
+        effectiveDate: event.effectiveDate,
+        oldPlanId: event.oldPlanId,
+        newPlanId: event.newPlanId,
+        prorationCredit: event.prorationCredit,
+        prorationCharge: event.prorationCharge,
+      },
+    });
+
     // Usa o InvoiceGenerator existente
-    // TODO: Adaptar conforme assinatura do método existente
-    await this.invoiceGenerator.generateProrationInvoice(
+    await this.invoiceGenerator.generateInvoice(
       subscriptionEntity,
+      [lineItem],
       {
-        description: `Proration: Plan change from ${event.oldPlanId} to ${event.newPlanId}`,
-        amount: amount,
-        effectiveDate: new Date(event.effectiveDate),
+        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 dias
+        immediateCharge: false,
       },
     );
   }
@@ -447,32 +531,36 @@ export class OnPlanChangedGenerateInvoiceHandler {
 
 ### Passo 6: Criar Handler para Emissão de Crédito
 
-**Arquivo**: `src/module/billing/subscription/core/event-handler/on-plan-changed-issue-credit.handler.ts`
+**Arquivo**: `src/module/billing/credit/core/event-handler/on-plan-changed-issue-credit.handler.ts`
+
+**Nota**: Handler fica em `credit/` porque é a feature que **reage** ao evento, não em `subscription/` que emite o evento. Isso mantém baixo acoplamento.
 
 ```typescript
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Transactional } from 'typeorm-transactional';
 import Decimal from 'decimal.js';
-import { SubscriptionPlanChangedPayload } from '../../domain/event/subscription-plan-changed.event';
-import { CreditRepository } from '../../../credit/persistence/repository/credit.repository';
-import { CreditEntity } from '../../../credit/persistence/entity/credit.entity';
+import { AppLogger } from '@sharedModules/logger/service/app-logger.service';
+import { SubscriptionPlanChangedPayload } from '../../../subscription/domain/event/subscription-plan-changed.event';
+import { CreditRepository } from '../../persistence/repository/credit.repository';
+import { CreditManagerService } from '../service/credit-manager.service';
+import { CreditType } from '../enum/credit-type.enum';
 
 /**
  * Event Handler: Emite crédito quando downgrade de plano.
- * 
+ *
  * Reage ao evento SubscriptionPlanChanged.
  * Cria crédito se o valor líquido for negativo (downgrade).
- * 
+ *
  * Importante:
  * - Roda em transação própria
  * - Deve ser idempotente
  */
 @Injectable()
 export class OnPlanChangedIssueCreditHandler {
-  private readonly logger = new Logger(OnPlanChangedIssueCreditHandler.name);
-
   constructor(
     private readonly creditRepository: CreditRepository,
+    private readonly creditManager: CreditManagerService,
+    private readonly appLogger: AppLogger,
   ) {}
 
   /**
@@ -480,8 +568,12 @@ export class OnPlanChangedIssueCreditHandler {
    */
   @Transactional({ connectionName: 'billing' })
   async handle(event: SubscriptionPlanChangedPayload): Promise<void> {
-    this.logger.log(
+    this.appLogger.log(
       `Checking credit for subscription ${event.subscriptionId}`,
+      {
+        subscriptionId: event.subscriptionId,
+        userId: event.userId,
+      },
     );
 
     // 1. Calcular se há crédito a emitir
@@ -492,22 +584,35 @@ export class OnPlanChangedIssueCreditHandler {
     // 2. Se valor líquido for negativo, emitir crédito
     if (netAmount.lessThan(0)) {
       const creditAmount = netAmount.abs();
-      
+
       // Verificar idempotência
       const existingCredit = await this.findExistingCredit(
+        event.userId,
         event.subscriptionId,
         event.effectiveDate,
       );
 
       if (existingCredit) {
-        this.logger.warn(`Credit already issued. Skipping.`);
+        this.appLogger.log(`Credit already issued. Skipping.`, {
+          subscriptionId: event.subscriptionId,
+          effectiveDate: event.effectiveDate,
+        });
         return;
       }
 
       await this.issueCredit(event, creditAmount);
-      this.logger.log(`Issued credit of ${creditAmount.toString()}`);
+      this.appLogger.log(`Issued credit of ${creditAmount.toString()}`, {
+        subscriptionId: event.subscriptionId,
+        creditAmount: creditAmount.toString(),
+      });
     } else {
-      this.logger.log(`No credit needed (net amount: ${netAmount.toString()})`);
+      this.appLogger.log(
+        `No credit needed (net amount: ${netAmount.toString()})`,
+        {
+          subscriptionId: event.subscriptionId,
+          netAmount: netAmount.toString(),
+        },
+      );
     }
   }
 
@@ -515,10 +620,27 @@ export class OnPlanChangedIssueCreditHandler {
    * Verifica se já existe crédito para evitar duplicatas
    */
   private async findExistingCredit(
+    userId: string,
     subscriptionId: string,
     effectiveDate: string,
   ): Promise<boolean> {
-    // TODO: Implementar busca
+    const credits = await this.creditRepository.findByUserId(userId);
+
+    // Verifica se existe crédito de proration com metadata correspondente
+    for (const credit of credits) {
+      if (
+        credit.creditType === CreditType.Proration &&
+        credit.metadata &&
+        typeof credit.metadata === 'object' &&
+        'subscriptionId' in credit.metadata &&
+        credit.metadata.subscriptionId === subscriptionId &&
+        'effectiveDate' in credit.metadata &&
+        credit.metadata.effectiveDate === effectiveDate
+      ) {
+        return true;
+      }
+    }
+
     return false;
   }
 
@@ -529,16 +651,25 @@ export class OnPlanChangedIssueCreditHandler {
     event: SubscriptionPlanChangedPayload,
     amount: Decimal,
   ): Promise<void> {
-    // TODO: Adaptar conforme estrutura da entity Credit existente
-    const credit = new CreditEntity({
-      userId: event.userId,
-      subscriptionId: event.subscriptionId,
-      amount: amount.toNumber(),
-      reason: `Plan change proration credit`,
-      expiresAt: this.calculateExpirationDate(),
-    });
+    const expirationDate = this.calculateExpirationDate();
 
-    await this.creditRepository.save(credit);
+    await this.creditManager.createCredit(
+      event.userId,
+      CreditType.Proration,
+      amount.toNumber(),
+      {
+        description: `Plan change proration credit`,
+        expiresAt: expirationDate,
+        metadata: {
+          subscriptionId: event.subscriptionId,
+          effectiveDate: event.effectiveDate,
+          oldPlanId: event.oldPlanId,
+          newPlanId: event.newPlanId,
+          prorationCredit: event.prorationCredit,
+          prorationCharge: event.prorationCharge,
+        },
+      },
+    );
   }
 
   /**
@@ -557,61 +688,57 @@ export class OnPlanChangedIssueCreditHandler {
 
 ---
 
-### Passo 7: Criar Barrel Export
-
-**Arquivo**: `src/module/billing/subscription/core/event-handler/index.ts`
-
-```typescript
-export { OnPlanChangedGenerateInvoiceHandler } from './on-plan-changed-generate-invoice.handler';
-export { OnPlanChangedIssueCreditHandler } from './on-plan-changed-issue-credit.handler';
-```
-
-- [ ] Criar arquivo
-
 ---
 
 ### Passo 8: Criar EventDispatcher Service
 
-**Arquivo**: `src/module/billing/shared/infrastructure/event/event-dispatcher.service.ts`
+**Arquivo**: `src/module/billing/shared/outbox/adapter/event-dispatcher.service.ts`
 
 ```typescript
-import { Injectable, Logger } from '@nestjs/common';
-import { DomainEventPayload } from '../../core/adapter/event-bus.adapter.interface';
-import { OnPlanChangedGenerateInvoiceHandler } from '../../../subscription/core/event-handler/on-plan-changed-generate-invoice.handler';
-import { OnPlanChangedIssueCreditHandler } from '../../../subscription/core/event-handler/on-plan-changed-issue-credit.handler';
+import { Injectable } from '@nestjs/common';
+import { AppLogger } from '@sharedModules/logger/service/app-logger.service';
+import { DomainEventPayload } from './event-bus.adapter.interface';
+import { OnPlanChangedGenerateInvoiceHandler } from '../../../invoice/core/event-handler/on-plan-changed-generate-invoice.handler';
+import { OnPlanChangedIssueCreditHandler } from '../../../credit/core/event-handler/on-plan-changed-issue-credit.handler';
 import { SubscriptionPlanChangedPayload } from '../../../subscription/domain/event/subscription-plan-changed.event';
 
 /**
  * Dispatcher local de eventos.
- * 
+ *
  * Quando o Event Bus real (Kafka) for implementado,
  * este dispatcher será chamado pelo consumer do Kafka.
- * 
+ *
  * Por enquanto, pode ser chamado diretamente pelo OutboxProcessor
  * para testes locais.
  */
 @Injectable()
 export class EventDispatcherService {
-  private readonly logger = new Logger(EventDispatcherService.name);
-
   constructor(
     private readonly invoiceHandler: OnPlanChangedGenerateInvoiceHandler,
     private readonly creditHandler: OnPlanChangedIssueCreditHandler,
+    private readonly appLogger: AppLogger,
   ) {}
 
   /**
    * Despacha evento para handlers apropriados
    */
   async dispatch(event: DomainEventPayload): Promise<void> {
-    this.logger.debug(`Dispatching event: ${event.eventType}`);
+    this.appLogger.log(`Dispatching event: ${event.eventType}`, {
+      eventType: event.eventType,
+      aggregateId: event.aggregateId,
+    });
 
     switch (event.eventType) {
       case 'subscription.plan.changed':
-        await this.handlePlanChanged(event.payload as SubscriptionPlanChangedPayload);
+        await this.handlePlanChanged(
+          event.payload as unknown as SubscriptionPlanChangedPayload,
+        );
         break;
 
       default:
-        this.logger.warn(`No handler for event type: ${event.eventType}`);
+        this.appLogger.log(`No handler for event type: ${event.eventType}`, {
+          eventType: event.eventType,
+        });
     }
   }
 
@@ -639,14 +766,14 @@ export class EventDispatcherService {
 **Arquivo**: `src/module/billing/billing.module.ts`
 
 ```typescript
-import { OnPlanChangedGenerateInvoiceHandler } from './subscription/core/event-handler/on-plan-changed-generate-invoice.handler';
-import { OnPlanChangedIssueCreditHandler } from './subscription/core/event-handler/on-plan-changed-issue-credit.handler';
-import { EventDispatcherService } from './shared/infrastructure/event/event-dispatcher.service';
+import { OnPlanChangedGenerateInvoiceHandler } from './invoice/core/event-handler/on-plan-changed-generate-invoice.handler';
+import { OnPlanChangedIssueCreditHandler } from './credit/core/event-handler/on-plan-changed-issue-credit.handler';
+import { EventDispatcherService } from './shared/outbox/adapter/event-dispatcher.service';
 
 @Module({
   providers: [
     // ... outros providers
-    
+
     // Event Handlers
     OnPlanChangedGenerateInvoiceHandler,
     OnPlanChangedIssueCreditHandler,
@@ -730,9 +857,12 @@ describe('OnPlanChangedGenerateInvoiceHandler', () => {
 ## Rollback Plan
 
 1. Remover arquivos criados em:
-   - `src/module/billing/shared/infrastructure/event/`
-   - `src/module/billing/shared/persistence/outbox/outbox-processor.service.ts`
-   - `src/module/billing/subscription/core/event-handler/`
+
+   - `src/module/billing/shared/outbox/adapter/noop-event-bus.adapter.ts`
+   - `src/module/billing/shared/outbox/adapter/event-dispatcher.service.ts`
+   - `src/module/billing/shared/outbox/processor/outbox-processor.service.ts`
+   - `src/module/billing/invoice/core/event-handler/`
+   - `src/module/billing/credit/core/event-handler/`
 
 2. Reverter mudanças no `billing.module.ts`
 
@@ -763,4 +893,3 @@ npm run test -- --testPathPattern=billing
 
 Após completar esta fase, prossiga para:
 → `PHASE-06-integration.md` - Conectar tudo ao Controller e limpar código antigo
-

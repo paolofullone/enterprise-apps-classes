@@ -1,5 +1,5 @@
 import { PlanInterval } from '@billingModule/subscription/core/enum/plan-interval.enum';
-import { Subscription } from '@billingModule/subscription/persistence/entity/subscription.entity';
+import { SubscriptionEntity } from '@billingModule/subscription/persistence/entity/subscription.entity';
 import { DefaultEntity } from '@sharedModules/persistence/typeorm/entity/default.entity';
 import { Column, Entity, OneToMany } from 'typeorm';
 import { JsonMetadata } from '@billingModule/shared/core/interface/common.interface';
@@ -53,6 +53,6 @@ export class Plan extends DefaultEntity<Plan> {
   @Column({ type: 'json', nullable: true })
   metadata: JsonMetadata | null;
 
-  @OneToMany(() => Subscription, (subscription) => subscription.plan)
-  subscriptions: Subscription[];
+  @OneToMany(() => SubscriptionEntity, (subscription) => subscription.plan)
+  subscriptions: SubscriptionEntity[];
 }

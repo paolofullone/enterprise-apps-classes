@@ -21,6 +21,7 @@ import { AddOnRepository } from '@billingModule/subscription/persistence/reposit
 import { SubscriptionRepository } from '@billingModule/subscription/persistence/repository/subscription.repository';
 import { SubscriptionAddOnRepository } from '@billingModule/subscription/persistence/repository/subscription-add-on.repository';
 import { SubscriptionDiscountRepository } from '@billingModule/subscription/persistence/repository/subscription-discount.repository';
+import { SubscriptionMapper } from '@billingModule/subscription/persistence/mapper/subscription.mapper';
 import { SubscriptionController } from '@billingModule/subscription/http/rest/controller/subscription.controller';
 import { SubscriptionBillingController } from '@billingModule/subscription/http/rest/controller/subscription-billing.controller';
 
@@ -86,6 +87,7 @@ import { TaxCalculationSummaryRepository } from '@billingModule/tax/persistence/
     SubscriptionRepository,
     SubscriptionAddOnRepository,
     SubscriptionDiscountRepository,
+    SubscriptionMapper,
 
     // Invoice
     InvoiceService,

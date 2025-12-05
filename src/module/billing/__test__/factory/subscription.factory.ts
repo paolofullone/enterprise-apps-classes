@@ -1,12 +1,12 @@
 import { faker } from '@faker-js/faker';
 
 import { SubscriptionStatus } from '@billingModule/subscription/core/enum/subscription-status.enum';
-import { Subscription } from '@billingModule/subscription/persistence/entity/subscription.entity';
+import { SubscriptionEntity } from '@billingModule/subscription/persistence/entity/subscription.entity';
 import * as Factory from 'factory.ts';
 import { planFactory } from '@billingModule/__test__/factory/plan.factory';
 
 export const subscriptionFactory = Factory.Sync.makeFactory<
-  Partial<Subscription>
+  Partial<SubscriptionEntity>
 >({
   id: Factory.each(() => faker.string.uuid()),
   userId: Factory.each(() => faker.string.uuid()),
@@ -31,7 +31,7 @@ export const subscriptionFactory = Factory.Sync.makeFactory<
 });
 
 export const subscriptionWithPlanFactory = (
-  subscriptionOverrides: Partial<Subscription>,
+  subscriptionOverrides: Partial<SubscriptionEntity>,
 ) => {
   const plan = planFactory.build();
   subscriptionFactory.build({

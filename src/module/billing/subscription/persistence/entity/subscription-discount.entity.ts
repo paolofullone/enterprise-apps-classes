@@ -1,6 +1,6 @@
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
 import { DefaultEntity } from '@sharedModules/persistence/typeorm/entity/default.entity';
-import { Subscription } from '@billingModule/subscription/persistence/entity/subscription.entity';
+import { SubscriptionEntity } from '@billingModule/subscription/persistence/entity/subscription.entity';
 import { Discount } from '@billingModule/discount/persistence/entity/discount.entity';
 
 @Entity({ name: 'BillingSubscriptionDiscount' })
@@ -20,9 +20,9 @@ export class SubscriptionDiscount extends DefaultEntity<SubscriptionDiscount> {
   @Column({ type: 'int', nullable: true })
   remainingMonths: number | null;
 
-  @ManyToOne(() => Subscription, (subscription) => subscription.discounts)
+  @ManyToOne(() => SubscriptionEntity, (subscription) => subscription.discounts)
   @JoinColumn({ name: 'subscriptionId' })
-  subscription: Subscription;
+  subscription: SubscriptionEntity;
 
   @ManyToOne(() => Discount, (discount) => discount.subscriptionDiscounts)
   @JoinColumn({ name: 'discountId' })

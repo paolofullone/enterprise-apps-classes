@@ -2,18 +2,18 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DefaultTypeOrmRepository } from '@sharedModules/persistence/typeorm/repository/default-typeorm.repository';
 import { DataSource, FindOptionsWhere, IsNull } from 'typeorm';
-import { SubscriptionAddOn } from '@billingModule/subscription/persistence/entity/subscription-add-on.entity';
+import { SubscriptionAddOnEntity } from '@billingModule/subscription/persistence/entity/subscription-add-on.entity';
 
 @Injectable()
-export class SubscriptionAddOnRepository extends DefaultTypeOrmRepository<SubscriptionAddOn> {
+export class SubscriptionAddOnRepository extends DefaultTypeOrmRepository<SubscriptionAddOnEntity> {
   constructor(
     @InjectDataSource('billing')
     dataSource: DataSource,
   ) {
-    super(SubscriptionAddOn, dataSource.manager);
+    super(SubscriptionAddOnEntity, dataSource.manager);
   }
 
-  async findById(id: string): Promise<SubscriptionAddOn | null> {
+  async findById(id: string): Promise<SubscriptionAddOnEntity | null> {
     return this.findOne({
       where: { id },
       relations: ['subscription', 'addOn'],
@@ -22,12 +22,12 @@ export class SubscriptionAddOnRepository extends DefaultTypeOrmRepository<Subscr
 
   async findActiveBySubscriptionId(
     subscriptionId: string,
-  ): Promise<SubscriptionAddOn[]> {
+  ): Promise<SubscriptionAddOnEntity[]> {
     return this.findMany({
       where: {
         subscriptionId,
         endDate: IsNull(),
-      } as FindOptionsWhere<SubscriptionAddOn>,
+      } as FindOptionsWhere<SubscriptionAddOnEntity>,
       relations: ['addOn'],
       order: { startDate: 'DESC' },
     });
@@ -35,9 +35,9 @@ export class SubscriptionAddOnRepository extends DefaultTypeOrmRepository<Subscr
 
   async findBySubscriptionId(
     subscriptionId: string,
-  ): Promise<SubscriptionAddOn[]> {
+  ): Promise<SubscriptionAddOnEntity[]> {
     return this.findMany({
-      where: { subscriptionId } as FindOptionsWhere<SubscriptionAddOn>,
+      where: { subscriptionId } as FindOptionsWhere<SubscriptionAddOnEntity>,
       relations: ['addOn'],
       order: { startDate: 'DESC' },
     });

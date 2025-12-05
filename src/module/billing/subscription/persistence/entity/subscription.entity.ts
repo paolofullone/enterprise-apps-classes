@@ -6,7 +6,7 @@ import {
   BillingAddress,
   JsonMetadata,
 } from '@billingModule/shared/core/interface/common.interface';
-import { SubscriptionAddOn } from './subscription-add-on.entity';
+import { SubscriptionAddOnEntity } from './subscription-add-on.entity';
 import { SubscriptionDiscount } from './subscription-discount.entity';
 import { Invoice } from '@billingModule/invoice/persistence/entity/invoice.entity';
 import { UsageRecord } from '@billingModule/usage/persistence/entity/usage-record.entity';
@@ -14,7 +14,7 @@ import { DunningAttempt } from '@billingModule/dunning/persistence/entity/dunnin
 import { Charge } from '@billingModule/invoice/persistence/entity/charge.entity';
 
 @Entity({ name: 'Subscription' })
-export class Subscription extends DefaultEntity<Subscription> {
+export class SubscriptionEntity extends DefaultEntity<SubscriptionEntity> {
   @Column()
   userId: string;
 
@@ -65,10 +65,10 @@ export class Subscription extends DefaultEntity<Subscription> {
   @JoinColumn({ name: 'planId' })
   plan: Plan;
 
-  @OneToMany(() => SubscriptionAddOn, (addOn) => addOn.subscription, {
+  @OneToMany(() => SubscriptionAddOnEntity, (addOn) => addOn.subscription, {
     cascade: true,
   })
-  addOns: SubscriptionAddOn[];
+  addOns: SubscriptionAddOnEntity[];
 
   @OneToMany(() => SubscriptionDiscount, (discount) => discount.subscription, {
     cascade: true,

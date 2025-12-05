@@ -1,5 +1,5 @@
 import { SubscriptionStatus } from '@billingModule/subscription/core/enum/subscription-status.enum';
-import { Subscription } from '@billingModule/subscription/persistence/entity/subscription.entity';
+import { SubscriptionEntity } from '@billingModule/subscription/persistence/entity/subscription.entity';
 import { PlanRepository } from '@billingModule/subscription/persistence/repository/plan.repository';
 import { SubscriptionRepository } from '@billingModule/subscription/persistence/repository/subscription.repository';
 import { Injectable, NotFoundException } from '@nestjs/common';
@@ -17,12 +17,12 @@ export class SubscriptionService {
     planId,
   }: {
     planId: string;
-  }): Promise<Subscription> {
+  }): Promise<SubscriptionEntity> {
     const plan = await this.planRepository.findOneById(planId);
     if (!plan) {
       throw new NotFoundException(`Plan with id ${planId} not found`);
     }
-    const subscription = new Subscription({
+    const subscription = new SubscriptionEntity({
       plan,
       userId: this.clsService.get('userId'),
       status: SubscriptionStatus.Active,
@@ -39,7 +39,9 @@ export class SubscriptionService {
     return subscription?.status === SubscriptionStatus.Active;
   }
 
-  async getSubscriptionByUserId(userId: string): Promise<Subscription | null> {
+  async getSubscriptionByUserId(
+    userId: string,
+  ): Promise<SubscriptionEntity | null> {
     return this.subscriptionRepository.findOneByUserId(userId);
   }
 }

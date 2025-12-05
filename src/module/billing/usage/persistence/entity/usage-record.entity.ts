@@ -2,7 +2,7 @@ import { JsonMetadata } from '@billingModule/shared/core/interface/common.interf
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
 import { DefaultEntity } from '@sharedModules/persistence/typeorm/entity/default.entity';
 import { UsageType } from '@billingModule/usage/core/enum/usage-type.enum';
-import { Subscription } from '@billingModule/subscription/persistence/entity/subscription.entity';
+import { SubscriptionEntity } from '@billingModule/subscription/persistence/entity/subscription.entity';
 
 export class ColumnNumericTransformer {
   to(data: number): number {
@@ -50,7 +50,10 @@ export class UsageRecord extends DefaultEntity<UsageRecord> {
   @Column({ type: 'varchar', nullable: true })
   billedInInvoiceId: string | null;
 
-  @ManyToOne(() => Subscription, (subscription) => subscription.usageRecords)
+  @ManyToOne(
+    () => SubscriptionEntity,
+    (subscription) => subscription.usageRecords,
+  )
   @JoinColumn({ name: 'subscriptionId' })
-  subscription: Subscription;
+  subscription: SubscriptionEntity;
 }

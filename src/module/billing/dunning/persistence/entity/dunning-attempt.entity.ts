@@ -2,7 +2,7 @@ import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
 import { DefaultEntity } from '@sharedModules/persistence/typeorm/entity/default.entity';
 import { DunningStage } from '@billingModule/dunning/core/enum/dunning-stage.enum';
 import { PaymentStatus } from '@billingModule/shared/core/enum/payment-status.enum';
-import { Subscription } from '@billingModule/subscription/persistence/entity/subscription.entity';
+import { SubscriptionEntity } from '@billingModule/subscription/persistence/entity/subscription.entity';
 
 @Entity({ name: 'BillingDunningAttempt' })
 export class DunningAttempt extends DefaultEntity<DunningAttempt> {
@@ -36,7 +36,10 @@ export class DunningAttempt extends DefaultEntity<DunningAttempt> {
   @Column({ type: 'text', nullable: true })
   errorMessage: string | null;
 
-  @ManyToOne(() => Subscription, (subscription) => subscription.dunningAttempts)
+  @ManyToOne(
+    () => SubscriptionEntity,
+    (subscription) => subscription.dunningAttempts,
+  )
   @JoinColumn({ name: 'subscriptionId' })
-  subscription: Subscription;
+  subscription: SubscriptionEntity;
 }

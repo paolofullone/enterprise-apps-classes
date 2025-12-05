@@ -2,7 +2,7 @@ import { JsonMetadata } from '@billingModule/shared/core/interface/common.interf
 import { Column, Entity, OneToMany } from 'typeorm';
 import { DefaultEntity } from '@sharedModules/persistence/typeorm/entity/default.entity';
 import { AddOnType } from '@billingModule/subscription/core/enum/add-on-type.enum';
-import { SubscriptionAddOn } from '@billingModule/subscription/persistence/entity/subscription-add-on.entity';
+import { SubscriptionAddOnEntity } from '@billingModule/subscription/persistence/entity/subscription-add-on.entity';
 
 export class ColumnNumericTransformer {
   to(data: number): number {
@@ -51,8 +51,8 @@ export class AddOn extends DefaultEntity<AddOn> {
   metadata: JsonMetadata | null;
 
   @OneToMany(
-    () => SubscriptionAddOn,
+    () => SubscriptionAddOnEntity,
     (subscriptionAddOn) => subscriptionAddOn.addOn,
   )
-  subscriptionAddOns: SubscriptionAddOn[];
+  subscriptionAddOns: SubscriptionAddOnEntity[];
 }

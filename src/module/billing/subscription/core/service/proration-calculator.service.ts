@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { differenceInDays, addMonths, addYears } from 'date-fns';
 import { Decimal } from 'decimal.js';
-import { Subscription } from '@billingModule/subscription/persistence/entity/subscription.entity';
+import { SubscriptionEntity } from '@billingModule/subscription/persistence/entity/subscription.entity';
 import { Plan } from '@billingModule/subscription/persistence/entity/plan.entity';
 import { ChargeRepository } from '@billingModule/invoice/persistence/repository/charge.repository';
 import {
@@ -45,7 +45,7 @@ export class ProrationCalculatorService {
    * @returns Proration result with credit amount and breakdown
    */
   async calculateProrationCredit(
-    subscription: Subscription,
+    subscription: SubscriptionEntity,
     changeDate: Date,
     effectiveDate?: Date,
   ): Promise<ProrationResult> {

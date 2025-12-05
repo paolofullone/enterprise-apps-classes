@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Transactional } from 'typeorm-transactional';
-import { Subscription } from '@billingModule/subscription/persistence/entity/subscription.entity';
+import { SubscriptionEntity } from '@billingModule/subscription/persistence/entity/subscription.entity';
 import { Invoice } from '@billingModule/invoice/persistence/entity/invoice.entity';
 import { InvoiceLineItem } from '@billingModule/invoice/persistence/entity/invoice-line-item.entity';
 import { InvoiceRepository } from '@billingModule/invoice/persistence/repository/invoice.repository';
@@ -47,7 +47,7 @@ export class InvoiceGeneratorService {
    */
   @Transactional({ connectionName: 'billing' })
   async generateInvoice(
-    subscription: Subscription,
+    subscription: SubscriptionEntity,
     lineItems: InvoiceLineItem[],
     options: {
       dueDate?: Date;
@@ -108,7 +108,9 @@ export class InvoiceGeneratorService {
    * @param subscription - Subscription for invoice
    * @returns Unique invoice number
    */
-  async generateInvoiceNumber(subscription: Subscription): Promise<string> {
+  async generateInvoiceNumber(
+    subscription: SubscriptionEntity,
+  ): Promise<string> {
     const now = new Date();
     const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
     const userPrefix = subscription.userId.substring(0, 8);

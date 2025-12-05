@@ -6,7 +6,7 @@ import {
 import { Transactional } from 'typeorm-transactional';
 import { AppLogger } from '@sharedModules/logger/service/app-logger.service';
 import { Decimal } from 'decimal.js';
-import { Subscription } from '@billingModule/subscription/persistence/entity/subscription.entity';
+import { SubscriptionEntity } from '@billingModule/subscription/persistence/entity/subscription.entity';
 import { UsageRecord } from '@billingModule/usage/persistence/entity/usage-record.entity';
 import { UsageRecordRepository } from '@billingModule/usage/persistence/repository/usage-record.repository';
 import { SubscriptionRepository } from '@billingModule/subscription/persistence/repository/subscription.repository';
@@ -116,7 +116,7 @@ export class UsageBillingService {
    * @returns Array of usage charges by type
    */
   async calculateUsageCharges(
-    subscription: Subscription,
+    subscription: SubscriptionEntity,
     periodStart: Date,
     periodEnd: Date,
   ): Promise<UsageCharge[]> {
@@ -404,7 +404,7 @@ export class UsageBillingService {
    * @param usageType - Usage type to check
    */
   private async checkQuotaWarnings(
-    subscription: Subscription,
+    subscription: SubscriptionEntity,
     usageType: UsageType,
   ): Promise<void> {
     const includedQuota = subscription.plan.includedUsageQuotas?.[usageType];

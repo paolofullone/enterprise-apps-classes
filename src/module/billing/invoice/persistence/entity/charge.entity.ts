@@ -3,7 +3,7 @@ import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
 import { DefaultEntity } from '@sharedModules/persistence/typeorm/entity/default.entity';
 import { ChargeType } from '@billingModule/shared/core/enum/charge-type.enum';
 import { PaymentStatus } from '@billingModule/shared/core/enum/payment-status.enum';
-import { Subscription } from '@billingModule/subscription/persistence/entity/subscription.entity';
+import { SubscriptionEntity } from '@billingModule/subscription/persistence/entity/subscription.entity';
 import { Invoice } from '@billingModule/invoice/persistence/entity/invoice.entity';
 
 export class ColumnNumericTransformer {
@@ -68,9 +68,9 @@ export class Charge extends DefaultEntity<Charge> {
   @Column({ type: 'json', nullable: true })
   metadata: JsonMetadata | null;
 
-  @ManyToOne(() => Subscription, (subscription) => subscription.charges)
+  @ManyToOne(() => SubscriptionEntity, (subscription) => subscription.charges)
   @JoinColumn({ name: 'subscriptionId' })
-  subscription: Subscription;
+  subscription: SubscriptionEntity;
 
   @ManyToOne(() => Invoice, (invoice) => invoice.charges, { nullable: true })
   @JoinColumn({ name: 'invoiceId' })

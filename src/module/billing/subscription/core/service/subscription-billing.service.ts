@@ -1,11 +1,11 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Transactional } from 'typeorm-transactional';
 import { AppLogger } from '@sharedModules/logger/service/app-logger.service';
-import { Subscription } from '@billingModule/subscription/persistence/entity/subscription.entity';
+import { SubscriptionEntity } from '@billingModule/subscription/persistence/entity/subscription.entity';
 import { Plan } from '@billingModule/subscription/persistence/entity/plan.entity';
 import { Invoice } from '@billingModule/invoice/persistence/entity/invoice.entity';
 import { InvoiceLineItem } from '@billingModule/invoice/persistence/entity/invoice-line-item.entity';
-import { SubscriptionAddOn } from '@billingModule/subscription/persistence/entity/subscription-add-on.entity';
+import { SubscriptionAddOnEntity } from '@billingModule/subscription/persistence/entity/subscription-add-on.entity';
 import { SubscriptionRepository } from '@billingModule/subscription/persistence/repository/subscription.repository';
 import { PlanRepository } from '@billingModule/subscription/persistence/repository/plan.repository';
 import { ProrationCalculatorService } from '@billingModule/subscription/core/service/proration-calculator.service';
@@ -85,7 +85,7 @@ export class SubscriptionBillingService {
       keepAddOns?: boolean;
     },
   ): Promise<{
-    subscription: Subscription;
+    subscription: SubscriptionEntity;
     invoice: Invoice;
     immediateCharge: number;
     nextBillingDate: Date;
@@ -326,7 +326,7 @@ export class SubscriptionBillingService {
       keepAddOns?: boolean;
     },
   ): Promise<{
-    subscription: Subscription;
+    subscription: SubscriptionEntity;
     invoice: Invoice;
     immediateCharge: number;
     nextBillingDate: Date;
@@ -580,7 +580,7 @@ export class SubscriptionBillingService {
       effectiveDate?: Date;
     },
   ): Promise<{
-    subscriptionAddOn: SubscriptionAddOn;
+    subscriptionAddOn: SubscriptionAddOnEntity;
     charge: number;
   }> {
     const subscription = await this.subscriptionRepository.findOne({
@@ -744,7 +744,7 @@ export class SubscriptionBillingService {
    * @param newPlan - New plan
    */
   private async validatePlanChange(
-    subscription: Subscription,
+    subscription: SubscriptionEntity,
     newPlan: Plan,
   ): Promise<void> {
     // Prevent changing to same plan

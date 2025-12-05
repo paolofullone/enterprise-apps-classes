@@ -135,9 +135,25 @@ export class SubscriptionBillingService {
       );
 
     // Step 4: Migrate add-ons
+    // If allowedAddOns is null, it means all add-ons are allowed
+    // So we pass all current add-on IDs to keep them all
+    // If it's an array (empty or with IDs), use it directly
+    const subscriptionAddOns = subscription.addOns || [];
+    // Ensure allowedAddOns is always an array
+    let allowedAddOnIds: string[];
+    if (newPlan.allowedAddOns === null || newPlan.allowedAddOns === undefined) {
+      // null/undefined means all add-ons are allowed, so pass all current add-on IDs
+      allowedAddOnIds = subscriptionAddOns.map((ao) => ao.addOnId);
+    } else if (Array.isArray(newPlan.allowedAddOns)) {
+      // It's already an array, use it directly
+      allowedAddOnIds = newPlan.allowedAddOns;
+    } else {
+      // Fallback to empty array if somehow it's not an array
+      allowedAddOnIds = [];
+    }
     const addOnChanges = await this.addOnManagerService.migrateAddOns(
-      subscription.addOns,
-      newPlan.allowedAddOns || [],
+      subscriptionAddOns,
+      allowedAddOnIds,
       effectiveDate,
     );
 
@@ -369,9 +385,25 @@ export class SubscriptionBillingService {
       );
 
     // Step 4: Migrate add-ons
+    // If allowedAddOns is null, it means all add-ons are allowed
+    // So we pass all current add-on IDs to keep them all
+    // If it's an array (empty or with IDs), use it directly
+    const subscriptionAddOns = subscription.addOns || [];
+    // Ensure allowedAddOns is always an array
+    let allowedAddOnIds: string[];
+    if (newPlan.allowedAddOns === null || newPlan.allowedAddOns === undefined) {
+      // null/undefined means all add-ons are allowed, so pass all current add-on IDs
+      allowedAddOnIds = subscriptionAddOns.map((ao) => ao.addOnId);
+    } else if (Array.isArray(newPlan.allowedAddOns)) {
+      // It's already an array, use it directly
+      allowedAddOnIds = newPlan.allowedAddOns;
+    } else {
+      // Fallback to empty array if somehow it's not an array
+      allowedAddOnIds = [];
+    }
     const addOnChanges = await this.addOnManagerService.migrateAddOns(
-      subscription.addOns,
-      newPlan.allowedAddOns || [],
+      subscriptionAddOns,
+      allowedAddOnIds,
       effectiveDate,
     );
 

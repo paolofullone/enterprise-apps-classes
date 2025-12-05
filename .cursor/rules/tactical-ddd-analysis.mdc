@@ -1,0 +1,734 @@
+---
+description: "Run with: @tactical-ddd or 'analyze domain model', 'check rich domain', 'evaluate aggregates', 'analyze use case [name]'"
+globs: []
+alwaysApply: false
+---
+
+# Tactical DDD Analysis Rule
+
+**ACTIVATION**: This rule should ONLY be used when the user explicitly requests tactical DDD analysis using:
+- `@tactical-ddd` mention in chat
+- Commands like "analyze domain model", "check rich domain", "evaluate aggregates"
+- Commands like "analyze use case [name]", "list use cases", "evaluate flow [name]"
+- Questions about "anemic model", "rich domain", "aggregate design"
+- Requests to audit or review domain model quality
+
+**DO NOT** apply this rule automatically for general coding tasks, file edits, or feature development.
+
+---
+
+## ⚠️ CRITICAL: Domain vs Infrastructure Separation
+
+### Understanding the Layer Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     APPLICATION LAYER                            │
+│  Controllers, Use Cases, Application Services                   │
+│  (Orchestration only - NO business logic)                       │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                       DOMAIN LAYER                               │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
+│  │   DOMAIN    │  │   VALUE     │  │    DOMAIN SERVICES      │ │
+│  │  ENTITIES   │  │   OBJECTS   │  │  (stateless operations) │ │
+│  │ (Rich Model)│  │ (immutable) │  │                         │ │
+│  └─────────────┘  └─────────────┘  └─────────────────────────┘ │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                    DOMAIN EVENTS                             ││
+│  │         (SubscriptionActivated, InvoicePaid, etc.)          ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │               REPOSITORY INTERFACES                          ││
+│  │    (ISubscriptionRepository, IInvoiceRepository, etc.)      ││
+│  └─────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   INFRASTRUCTURE LAYER                           │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                  ORM ENTITIES (persistence/)                 ││
+│  │   @Entity SubscriptionEntity, InvoiceEntity, etc.           ││
+│  │   (ONLY for database mapping - NO business logic)           ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │              REPOSITORY IMPLEMENTATIONS                      ││
+│  │    TypeORM repositories that implement domain interfaces    ││
+│  │    Responsible for MAPPING between ORM ↔ Domain             ││
+│  └─────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 🚫 NEVER Do This
+
+```typescript
+// ❌ WRONG: Using ORM Entity as Domain Entity
+// persistence/entity/subscription.entity.ts
+@Entity({ name: 'Subscription' })
+export class Subscription extends DefaultEntity {
+  @Column()
+  userId: string;
+  
+  @Column()
+  status: SubscriptionStatus;
+  
+  // ❌ Adding domain behavior to ORM entity
+  activate(): void { ... }
+}
+```
+
+### ✅ ALWAYS Recommend This
+
+```typescript
+// ✅ CORRECT: Separate Domain Entity from ORM Entity
+
+// domain/entity/subscription.ts (DOMAIN - Rich Model)
+export class Subscription {
+  private readonly id: SubscriptionId;
+  private status: SubscriptionStatus;
+  private readonly userId: UserId;
+  private readonly events: DomainEvent[] = [];
+  
+  private constructor(props: SubscriptionProps) {
+    this.id = props.id;
+    this.status = props.status;
+    this.userId = props.userId;
+  }
+  
+  static create(userId: UserId, plan: Plan): Subscription {
+    const subscription = new Subscription({
+      id: SubscriptionId.generate(),
+      status: SubscriptionStatus.PendingActivation,
+      userId,
+    });
+    subscription.addEvent(new SubscriptionCreated(subscription.id));
+    return subscription;
+  }
+  
+  activate(): void {
+    if (this.status === SubscriptionStatus.Active) {
+      throw new DomainError('Already active');
+    }
+    this.status = SubscriptionStatus.Active;
+    this.addEvent(new SubscriptionActivated(this.id));
+  }
+  
+  // ... more domain behavior
+}
+
+// persistence/entity/subscription.entity.ts (INFRASTRUCTURE - ORM only)
+@Entity({ name: 'Subscription' })
+export class SubscriptionEntity extends DefaultEntity {
+  @Column()
+  userId: string;
+  
+  @Column({ type: 'enum', enum: SubscriptionStatus })
+  status: SubscriptionStatus;
+  
+  // NO BEHAVIOR - just columns
+}
+
+// persistence/repository/subscription.repository.ts (INFRASTRUCTURE - Mapping)
+@Injectable()
+export class SubscriptionRepository implements ISubscriptionRepository {
+  constructor(
+    @InjectRepository(SubscriptionEntity)
+    private readonly ormRepo: Repository<SubscriptionEntity>,
+    private readonly mapper: SubscriptionMapper,
+  ) {}
+  
+  async findById(id: SubscriptionId): Promise<Subscription | null> {
+    const entity = await this.ormRepo.findOne({ where: { id: id.value } });
+    return entity ? this.mapper.toDomain(entity) : null;
+  }
+  
+  async save(subscription: Subscription): Promise<void> {
+    const entity = this.mapper.toEntity(subscription);
+    await this.ormRepo.save(entity);
+  }
+}
+
+// persistence/mapper/subscription.mapper.ts (INFRASTRUCTURE - Mapping)
+@Injectable()
+export class SubscriptionMapper {
+  toDomain(entity: SubscriptionEntity): Subscription {
+    return Subscription.reconstitute({
+      id: new SubscriptionId(entity.id),
+      userId: new UserId(entity.userId),
+      status: entity.status,
+      // ... map all fields
+    });
+  }
+  
+  toEntity(domain: Subscription): SubscriptionEntity {
+    return new SubscriptionEntity({
+      id: domain.id.value,
+      userId: domain.userId.value,
+      status: domain.status,
+      // ... map all fields
+    });
+  }
+}
+```
+
+---
+
+## How to Activate
+
+When user requests tactical DDD analysis, you MUST:
+1. Load `docs/TACTICAL-DDD-GUIDELINES.md` using `read_file` tool
+2. Understand that `persistence/` contains INFRASTRUCTURE (ORM entities), NOT domain entities
+3. Follow the analysis process strictly
+4. Generate assessment reports in the specified format
+5. ALWAYS recommend separation between Domain Entities and ORM Entities
+
+---
+
+## Analysis Process Overview
+
+### Step 1: Load Guidelines
+
+**ALWAYS start by loading the guidelines:**
+```typescript
+read_file('docs/TACTICAL-DDD-GUIDELINES.md')
+```
+
+### Step 2: Identify Analysis Scope
+
+Determine what to analyze based on user request:
+- **Specific file/class**: Analyze single domain object
+- **Feature folder**: Analyze all domain objects in a feature
+- **Module**: Analyze entire domain module
+- **Use Case**: Analyze specific use case flow (see Use Case Analysis section)
+- **Full application**: Comprehensive analysis of all modules
+
+### Step 3: Understand the Current Structure
+
+**Identify what exists in each folder:**
+
+| Folder | Contains | Should Be |
+|--------|----------|-----------|
+| `persistence/entity/` | ORM Entities | Infrastructure ONLY |
+| `persistence/repository/` | Repository Impl | Infrastructure + Mapping |
+| `core/service/` | Services | May contain leaked domain logic |
+| `core/entity/` or `domain/` | Domain Entities | Should contain rich behavior |
+| `core/value-object/` | Value Objects | Should be immutable |
+
+### Step 4: Collect Domain Objects
+
+```bash
+# Find ORM Entities (Infrastructure - should have NO behavior)
+grep -r "@Entity" persistence/ --include="*.ts"
+
+# Find Services (check for leaked domain logic)
+grep -r "\.service\.ts$" core/ --include="*.ts"
+
+# Find potential Domain Entities (may not exist yet)
+grep -r "class.*Entity\|class.*Aggregate" core/ domain/ --include="*.ts"
+
+# Find Domain Events
+grep -r "Event\|Published\|DomainEvent" --include="*.ts"
+```
+
+---
+
+## Use Case Analysis (NEW)
+
+### Commands
+
+| User Command | Action |
+|--------------|--------|
+| "list use cases" | List all use cases in scope |
+| "analyze use case {name}" | Deep analysis of specific use case |
+| "analyze most complex use case" | Find and analyze the most complex use case |
+
+### Step 1: List Use Cases
+
+Search for use cases in the module:
+
+```bash
+# Find controllers to identify entry points
+grep -r "\.controller\.ts" http/rest/ --include="*.ts"
+
+# Find service methods (potential use cases)
+grep -r "@Transactional\|async.*\(" core/service/ --include="*.ts" -A 2
+
+# Find use case classes if they exist
+grep -r "UseCase\|Handler\|Command" --include="*.ts"
+```
+
+**Output format for listing:**
+
+```markdown
+## Use Cases Identified in {Module}
+
+| # | Use Case Name | Entry Point | Complexity | Services Involved |
+|---|---------------|-------------|------------|-------------------|
+| 1 | Change Plan | `POST /subscriptions/:id/change-plan` | 🔴 High | 8 services |
+| 2 | Create Subscription | `POST /subscriptions` | 🟡 Medium | 3 services |
+| 3 | Cancel Subscription | `POST /subscriptions/:id/cancel` | 🟡 Medium | 4 services |
+| 4 | Add Add-On | `POST /subscriptions/:id/add-ons` | 🟢 Low | 2 services |
+
+**Most Complex**: #1 Change Plan (involves proration, migration, invoicing)
+```
+
+### Step 2: Analyze Selected Use Case
+
+For the selected use case (most complex or user-specified), perform deep analysis:
+
+#### 2.1 Map Current Flow
+
+```markdown
+## Current Flow: {Use Case Name}
+
+### Sequence Diagram (Current - Anemic)
+
+```
+┌─────────┐    ┌────────────┐    ┌───────────────────┐    ┌────────────────┐
+│Controller│    │  Service   │    │   ORM Entity      │    │  Repository    │
+└────┬────┘    └──────┬─────┘    └─────────┬─────────┘    └───────┬────────┘
+     │                │                     │                      │
+     │ changePlan()   │                     │                      │
+     │───────────────>│                     │                      │
+     │                │                     │                      │
+     │                │ findSubscription()  │                      │
+     │                │────────────────────────────────────────────>│
+     │                │                     │                      │
+     │                │<────────────────────────────────────────────│
+     │                │      subscription   │                      │
+     │                │                     │                      │
+     │                │ ❌ BUSINESS LOGIC   │                      │
+     │                │ validate()          │                      │
+     │                │ calculateProration()│                      │
+     │                │ migrateAddOns()     │                      │
+     │                │                     │                      │
+     │                │ subscription.planId = newPlanId ❌ DIRECT  │
+     │                │────────────────────>│                      │
+     │                │                     │                      │
+     │                │ save()              │                      │
+     │                │────────────────────────────────────────────>│
+```
+
+### Problems Identified
+
+1. **All logic in Service** - Service is a Transaction Script
+2. **ORM Entity modified directly** - No encapsulation
+3. **No domain events** - Silent state changes
+4. **Multiple aggregates modified** - Violates transactional boundary
+```
+
+#### 2.2 Design Improved Flow
+
+```markdown
+## Improved Flow: {Use Case Name} (With Tactical DDD)
+
+### Target Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                           DOMAIN LAYER                                    │
+│  ┌─────────────────────────────────────────────────────────────────────┐ │
+│  │                    Subscription Aggregate                            │ │
+│  │  ┌─────────────────────────────────────────────────────────────┐   │ │
+│  │  │              Subscription (Aggregate Root)                   │   │ │
+│  │  │  - id: SubscriptionId (VO)                                  │   │ │
+│  │  │  - userId: UserId (VO)                                      │   │ │
+│  │  │  - plan: PlanId (VO) - reference by ID only                │   │ │
+│  │  │  - status: SubscriptionStatus (VO/Enum)                     │   │ │
+│  │  │  - billingPeriod: BillingPeriod (VO)                        │   │ │
+│  │  │  + changePlan(newPlanId, effectiveDate): PlanChangeResult   │   │ │
+│  │  │  + activate(): void                                          │   │ │
+│  │  │  + cancel(reason, immediate): void                          │   │ │
+│  │  └─────────────────────────────────────────────────────────────┘   │ │
+│  │                              │                                      │ │
+│  │              Contains (same aggregate boundary)                    │ │
+│  │                              │                                      │ │
+│  │  ┌─────────────────┐  ┌─────────────────┐                         │ │
+│  │  │ SubscriptionAddOn│  │ BillingPeriod  │                         │ │
+│  │  │    (Entity)      │  │  (Value Object) │                         │ │
+│  │  └─────────────────┘  └─────────────────┘                         │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────────┐ │
+│  │                Domain Services (stateless)                          │ │
+│  │  - ProrationCalculator.calculate(subscription, newPlan, date)      │ │
+│  │  - TaxCalculator.calculateForLineItems(items, address)             │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────────┐ │
+│  │                      Domain Events                                   │ │
+│  │  - SubscriptionPlanChanged { subscriptionId, oldPlanId, newPlanId } │ │
+│  │  - ProrationCreditIssued { subscriptionId, amount }                 │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                        INFRASTRUCTURE LAYER                               │
+│  ┌───────────────────┐  ┌───────────────────┐  ┌─────────────────────┐  │
+│  │ SubscriptionEntity│  │ SubscriptionMapper │  │SubscriptionRepository│ │
+│  │   (ORM only)      │  │ (Domain ↔ ORM)    │  │ (implements interface)│ │
+│  └───────────────────┘  └───────────────────┘  └─────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### Sequence Diagram (Improved - Rich Domain)
+
+```
+┌─────────┐ ┌────────────────┐ ┌───────────────────┐ ┌──────────────┐ ┌─────────────┐
+│Controller│ │ Application    │ │   Subscription    │ │  Domain      │ │  Event      │
+│         │ │ Service        │ │   (Domain Entity) │ │  Service     │ │  Publisher  │
+└────┬────┘ └───────┬────────┘ └─────────┬─────────┘ └──────┬───────┘ └──────┬──────┘
+     │              │                     │                  │                │
+     │ changePlan() │                     │                  │                │
+     │─────────────>│                     │                  │                │
+     │              │                     │                  │                │
+     │              │ find(subscriptionId)│                  │                │
+     │              │────────────────────>│                  │                │
+     │              │                     │                  │                │
+     │              │<────────────────────│                  │                │
+     │              │   subscription      │                  │                │
+     │              │                     │                  │                │
+     │              │ calculateProration()│                  │                │
+     │              │─────────────────────────────────────────>                │
+     │              │<─────────────────────────────────────────               │
+     │              │   prorationResult   │                  │                │
+     │              │                     │                  │                │
+     │              │ ✅ changePlan(newPlanId, prorationResult)               │
+     │              │────────────────────>│                  │                │
+     │              │                     │                  │                │
+     │              │                     │ ✅ validate()    │                │
+     │              │                     │ ✅ updateStatus()│                │
+     │              │                     │ ✅ addEvent(     │                │
+     │              │                     │   PlanChanged)   │                │
+     │              │                     │                  │                │
+     │              │<────────────────────│                  │                │
+     │              │   result            │                  │                │
+     │              │                     │                  │                │
+     │              │ save(subscription)  │                  │                │
+     │              │────────────────────>│                  │                │
+     │              │                     │                  │                │
+     │              │ publishEvents()     │                  │                │
+     │              │───────────────────────────────────────────────────────>│
+     │              │                     │                  │                │
+     │              │                     │                  │      ┌────────┴────────┐
+     │              │                     │                  │      │ InvoiceService  │
+     │              │                     │                  │      │ (Event Handler) │
+     │              │                     │                  │      │ generates invoice│
+     │              │                     │                  │      └─────────────────┘
+```
+
+### Code Structure After Refactoring
+
+```
+billing/
+├── domain/                          # NEW - Domain Layer
+│   ├── entity/
+│   │   ├── subscription.ts          # Rich Domain Entity
+│   │   ├── invoice.ts               # Rich Domain Entity
+│   │   └── credit.ts                # Rich Domain Entity
+│   ├── value-object/
+│   │   ├── subscription-id.ts
+│   │   ├── money.ts
+│   │   ├── billing-period.ts
+│   │   └── billing-address.ts
+│   ├── event/
+│   │   ├── subscription-plan-changed.ts
+│   │   ├── subscription-activated.ts
+│   │   └── invoice-finalized.ts
+│   ├── service/
+│   │   ├── proration-calculator.ts  # Domain Service
+│   │   └── tax-calculator.ts        # Domain Service
+│   └── repository/
+│       ├── subscription.repository.interface.ts
+│       └── invoice.repository.interface.ts
+│
+├── application/                     # Application Layer
+│   ├── use-case/
+│   │   ├── change-plan.use-case.ts
+│   │   └── create-subscription.use-case.ts
+│   └── event-handler/
+│       └── on-plan-changed.handler.ts
+│
+├── infrastructure/                  # Infrastructure Layer (was persistence/)
+│   ├── persistence/
+│   │   ├── entity/
+│   │   │   ├── subscription.entity.ts   # ORM Entity (NO behavior)
+│   │   │   └── invoice.entity.ts        # ORM Entity (NO behavior)
+│   │   ├── mapper/
+│   │   │   ├── subscription.mapper.ts   # Domain ↔ ORM
+│   │   │   └── invoice.mapper.ts
+│   │   └── repository/
+│   │       ├── subscription.repository.ts # Implements interface
+│   │       └── invoice.repository.ts
+│   └── http/
+│       └── client/
+│
+└── http/                            # Interface Layer
+    └── rest/
+        ├── controller/
+        └── dto/
+```
+```
+
+---
+
+## Analysis Checklists
+
+### Infrastructure vs Domain Separation Check
+
+```markdown
+- [ ] Domain entities exist SEPARATELY from ORM entities?
+- [ ] ORM entities have NO business methods (only @Column)?
+- [ ] Mappers exist to convert between Domain ↔ ORM?
+- [ ] Repository interfaces defined in Domain layer?
+- [ ] Repository implementations in Infrastructure layer?
+- [ ] Domain entities have private constructors with factory methods?
+- [ ] Domain entities collect events internally?
+```
+
+**Scoring:**
+- 7/7 checks: ✅ Proper separation
+- 4-6/7 checks: ⚠️ Partial separation, needs work
+- 1-3/7 checks: 🟡 Mostly coupled
+- 0/7 checks: 🔴 No separation - ORM = Domain (anti-pattern)
+
+### Anemic Model Detection
+
+Scan for these **red flags**:
+
+| Red Flag | Detection Pattern | Severity |
+|----------|-------------------|----------|
+| **ORM Entity with behavior** | `@Entity` class with business methods | 🔴 Critical |
+| **No domain folder** | Missing `domain/` or `core/entity/` | 🔴 Critical |
+| **Direct ORM manipulation** | `entity.property = value` in services | 🔴 Critical |
+| **No mappers** | Repository returns ORM entities | 🟡 Warning |
+| **Logic in Services** | Service with business rules | 🟡 Warning |
+| **No domain events** | State changes without events | 🟡 Warning |
+
+### Entity Evaluation (Domain Entities ONLY)
+
+```markdown
+- [ ] Has unique, immutable identity (Value Object)?
+- [ ] Private constructor with factory methods?
+- [ ] Methods express Ubiquitous Language?
+- [ ] All setters are private?
+- [ ] Collects Domain Events internally?
+- [ ] Validates invariants on construction and mutations?
+- [ ] Has reconstitute() method for repository hydration?
+```
+
+### Aggregate Evaluation
+
+```markdown
+- [ ] Has clear Root Entity?
+- [ ] True invariants justify the grouping?
+- [ ] Small enough (few entities, many value objects)?
+- [ ] References other Aggregates by ID ONLY (Value Object)?
+- [ ] Only one Aggregate modified per transaction?
+- [ ] Uses Domain Events for cross-Aggregate coordination?
+- [ ] Root controls all modifications to children?
+```
+
+### Value Object Evaluation
+
+```markdown
+- [ ] Completely immutable (all readonly)?
+- [ ] Private constructor with static factory methods?
+- [ ] Equality based on all attributes?
+- [ ] Methods are Side-Effect-Free (return new objects)?
+- [ ] Forms a "Conceptual Whole"?
+- [ ] No identity/ID field?
+```
+
+---
+
+## Output Format for Use Case Analysis
+
+```markdown
+## Use Case Analysis: {Use Case Name}
+
+### Current State
+
+**Entry Point**: `{controller method}`
+**Services Involved**: {count}
+**Aggregates Modified**: {count} (should be 1)
+**Domain Events Published**: {count}
+**Complexity Score**: 🔴 High / 🟡 Medium / 🟢 Low
+
+### Problems Identified
+
+1. **{Problem}** - {description}
+2. **{Problem}** - {description}
+
+### Current Flow Diagram
+{ASCII diagram}
+
+### Proposed Flow Diagram (After DDD)
+{ASCII diagram}
+
+### Recommended Domain Model
+
+#### Aggregates
+{List of aggregates with their entities and value objects}
+
+#### Domain Events
+{List of events with their payloads}
+
+#### Domain Services
+{List of services with their responsibilities}
+
+### Migration Steps
+
+1. **[Step 1]** Create domain entity separate from ORM
+2. **[Step 2]** Create mapper
+3. **[Step 3]** Move behavior from service to entity
+4. **[Step 4]** Add domain events
+5. **[Step 5]** Update repository to use mapper
+
+### Code Examples
+
+**Before (Service with logic):**
+```typescript
+// code
+```
+
+**After (Rich Domain):**
+```typescript
+// code
+```
+```
+
+---
+
+## Analysis Commands
+
+| User Request | Action |
+|--------------|--------|
+| "list use cases" | List all use cases with complexity |
+| "analyze use case {name}" | Deep analysis of specific use case |
+| "analyze most complex use case" | Find and analyze highest complexity |
+| "analyze {file}" | Analyze single file |
+| "analyze {folder}" | Analyze folder |
+| "check for anemic model" | Focus on Anemic Model Detection |
+| "evaluate aggregates" | Focus on Aggregate Evaluation |
+| "check domain separation" | Check Infrastructure vs Domain separation |
+
+---
+
+## Example Workflow
+
+**User Request**: "analyze use case change plan"
+
+**Agent Actions**:
+1. ✅ Load `docs/TACTICAL-DDD-GUIDELINES.md`
+2. ✅ Find the entry point (controller/service) for "change plan"
+3. ✅ Trace the entire flow through services
+4. ✅ Identify all entities touched
+5. ✅ Identify all services involved
+6. ✅ Check for domain events
+7. ✅ Create current flow diagram
+8. ✅ Identify problems (anemic model, no separation, etc.)
+9. ✅ Design target architecture with proper separation
+10. ✅ Create improved flow diagram
+11. ✅ Provide code examples for migration
+12. ✅ List migration steps
+
+---
+
+## Quick Assessment Questions
+
+1. **Is there a `domain/` folder separate from `persistence/`?**
+   - Yes → Good start
+   - No → 🔴 Domain coupled to infrastructure
+
+2. **Do ORM entities have business methods?**
+   - Yes → 🔴 Domain logic in infrastructure
+   - No → ✅ Proper separation
+
+3. **Are there mappers between Domain ↔ ORM?**
+   - Yes → ✅ Proper layering
+   - No → 🔴 Layers are coupled
+
+4. **Where is the business logic?**
+   - In Domain Entities → ✅ Rich domain
+   - In Services → 🔴 Anemic model
+
+5. **Can you modify an entity directly from a service?**
+   - Yes (`entity.status = X`) → 🔴 No encapsulation
+   - No (must use methods) → ✅ Proper encapsulation
+
+---
+
+## Validation Checklist
+
+Before finalizing output, verify:
+
+- [ ] Guidelines from `TACTICAL-DDD-GUIDELINES.md` were loaded
+- [ ] Understood that `persistence/` is INFRASTRUCTURE, not domain
+- [ ] NEVER suggested ORM entity = Domain entity
+- [ ] Recommended proper separation with mappers
+- [ ] All domain objects in scope were identified
+- [ ] Each checklist was applied appropriately
+- [ ] Use case flow was traced completely (if applicable)
+- [ ] Both current and improved diagrams were provided (if use case analysis)
+- [ ] Recommendations include migration steps
+- [ ] Code examples show Domain Entity + ORM Entity + Mapper
+
+---
+
+## Event Bus Guidelines
+
+### ⚠️ NEVER Use In-Memory Event Bus for Domain Events
+
+Domain Events são críticos para consistência do sistema. **SEMPRE** use:
+
+1. **Interface abstrata** (`IEventBus`) para desacoplar da implementação
+2. **Outbox Pattern** para garantir eventos não são perdidos
+3. **Message Broker** (Kafka, RabbitMQ, etc.) para durabilidade
+
+```typescript
+// application/port/event-bus.interface.ts
+export interface IEventBus {
+  publish(event: DomainEvent): Promise<void>;
+  publishAll(events: DomainEvent[]): Promise<void>;
+}
+
+export const EVENT_BUS = Symbol('EVENT_BUS');
+```
+
+### Value Objects Pragmáticos
+
+Usar Value Objects apenas quando agregam valor:
+
+| Usar VO | Não usar VO |
+|---------|-------------|
+| IDs tipados (`SubscriptionId`) | Money (usar `Decimal.js`) |
+| Períodos (`BillingPeriod`) | Strings simples |
+| Endereços complexos | Enums simples |
+
+---
+
+## Related Documentation
+
+- `docs/REFACTORING-CHANGE-PLAN-TO-DDD.md` - Guia completo de refatoração do changePlan
+- `docs/TACTICAL-DDD-GUIDELINES.md` - Guidelines de DDD Tático
+
+---
+
+## Integration with Other Rules
+
+This rule complements:
+- `complexity-analysis.mdc` - Architectural complexity metrics
+- `domain-identification-agent.mdc` - Strategic DDD analysis
+
+**When to use each:**
+- **Strategic (domain-identification)**: Identify domain boundaries, subdomains, cohesion
+- **Tactical (this rule)**: Evaluate implementation quality within a domain
+- **Complexity**: Measure module dependencies and code metrics

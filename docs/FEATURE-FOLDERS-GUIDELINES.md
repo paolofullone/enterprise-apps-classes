@@ -1052,6 +1052,54 @@ feature-name/
 | Request DTO | `*-request.dto.ts` |
 | Response DTO | `*-response.dto.ts` |
 
+### Test File Location
+
+**Princípio**: Testes devem ficar **perto da unidade de código** que testam.
+
+#### ✅ CORRETO: Testes próximos ao código
+
+```
+subscription/
+├── core/
+│   └── service/
+│       ├── subscription.service.ts
+│       └── __test__/
+│           └── subscription.service.spec.ts    ✅ Próximo ao código
+
+shared/
+└── domain/
+    └── value-object/
+        ├── billing-period.ts
+        └── __test__/
+            └── billing-period.spec.ts          ✅ Próximo ao código
+```
+
+#### ❌ ERRADO: Testes separados em estrutura paralela
+
+```
+subscription/
+├── core/
+│   └── service/
+│       └── subscription.service.ts
+└── __test__/
+    └── unit/
+        └── subscription.service.spec.ts       ❌ Longe do código
+
+shared/
+├── domain/
+│   └── value-object/
+│       └── billing-period.ts
+└── __test__/
+    └── unit/
+        └── domain/
+            └── billing-period.spec.ts         ❌ Longe do código
+```
+
+**Regra geral**:
+- Testes unitários: `{feature}/core/{layer}/__test__/{file}.spec.ts`
+- Testes e2e: `{feature}/__test__/e2e/{feature}.spec.ts`
+- Value Objects/Domain: `{path}/__test__/{file}.spec.ts` (mesmo nível)
+
 ---
 
 ## Why NOT Feature Modules? (RFC-08 Decision)

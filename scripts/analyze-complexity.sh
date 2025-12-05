@@ -184,6 +184,137 @@ EOF
 }
 
 # ============================================================================
+# Async Coupling Analysis (Event-Driven Architecture)
+# ============================================================================
+
+analyze_async_coupling() {
+    local module="$1"
+    local module_path="$SRC_DIR/$module"
+    
+    # Event Handlers (communication via domain events)
+    local event_handlers
+    event_handlers=$(find "$module_path" -name "*.handler.ts" -type f 2>/dev/null | wc -l | tr -d ' ')
+    
+    # Outbox Pattern usage
+    local outbox_usage
+    outbox_usage=$(grep -rl "OutboxRepository\|OutboxEvent\|outbox" "$module_path" 2>/dev/null | wc -l | tr -d ' ')
+    
+    # Domain Events defined (event classes)
+    local domain_events
+    domain_events=$(find "$module_path" -path "*/domain/event/*" -name "*.ts" -type f 2>/dev/null | wc -l | tr -d ' ')
+    # Also count events in */event/ folders
+    local other_events
+    other_events=$(find "$module_path" -path "*/event/*" ! -path "*/domain/event/*" -name "*.event.ts" -type f 2>/dev/null | wc -l | tr -d ' ')
+    domain_events=$((domain_events + other_events))
+    
+    # Event subscriptions (NestJS @OnEvent, Bull @Process/@Processor)
+    local nestjs_event_subscriptions
+    nestjs_event_subscriptions=$(grep -r "@OnEvent\|@EventPattern" "$module_path" 2>/dev/null | wc -l | tr -d ' ')
+    
+    local bull_processors
+    bull_processors=$(grep -r "@Process\|@Processor" "$module_path" 2>/dev/null | wc -l | tr -d ' ')
+    
+    # Cross-feature event consumption (handlers importing from other features)
+    local cross_feature_handlers=0
+    local cross_feature_details=""
+    
+    while IFS= read -r handler_file; do
+        if [ -f "$handler_file" ]; then
+            local relative_path="${handler_file#$SRC_DIR/}"
+            local handler_feature=$(echo "$relative_path" | cut -d'/' -f2)
+            
+            # Check imports from other features within same module
+            local imports_from_other_features
+            imports_from_other_features=$(grep -E "from '\.\./\.\./\.\.[^']*" "$handler_file" 2>/dev/null | wc -l | tr -d ' ')
+            
+            if [ "$imports_from_other_features" -gt 0 ]; then
+                cross_feature_handlers=$((cross_feature_handlers + 1))
+                if [ -n "$cross_feature_details" ]; then
+                    cross_feature_details="$cross_feature_details, "
+                fi
+                cross_feature_details="$cross_feature_details{\"handler\": \"$relative_path\", \"cross_imports\": $imports_from_other_features}"
+            fi
+        fi
+    done < <(find "$module_path" -name "*.handler.ts" -type f 2>/dev/null)
+    
+    # Event-driven coupling score (higher = more async, generally good for decoupling)
+    local async_score=0
+    [ "$domain_events" -gt 0 ] && async_score=$((async_score + domain_events * 5))
+    [ "$event_handlers" -gt 0 ] && async_score=$((async_score + event_handlers * 3))
+    [ "$outbox_usage" -gt 0 ] && async_score=$((async_score + 10))  # Outbox pattern is good
+    
+    cat <<EOF
+{
+    "async_coupling": {
+        "event_handlers": $event_handlers,
+        "domain_events_defined": $domain_events,
+        "outbox_pattern_usage": $outbox_usage,
+        "nestjs_event_subscriptions": $nestjs_event_subscriptions,
+        "bull_processors": $bull_processors,
+        "cross_feature_handlers": $cross_feature_handlers,
+        "cross_feature_details": [$cross_feature_details],
+        "async_maturity_score": $async_score
+    }
+}
+EOF
+}
+
+# ============================================================================
+# Use Case Analysis (Orchestration Complexity)
+# ============================================================================
+
+analyze_usecase_complexity() {
+    local module="$1"
+    local module_path="$SRC_DIR/$module"
+    
+    local total_usecases=0
+    local usecases_with_high_deps=0
+    local usecase_list=""
+    local max_usecase_deps=0
+    local max_usecase_deps_file=""
+    
+    while IFS= read -r usecase_file; do
+        if [ -f "$usecase_file" ]; then
+            total_usecases=$((total_usecases + 1))
+            local relative_path="${usecase_file#$SRC_DIR/}"
+            
+            # Count dependencies in use case
+            local dep_count
+            dep_count=$(grep -c "private readonly" "$usecase_file" 2>/dev/null || echo "0")
+            dep_count=$(echo "$dep_count" | tr -d '\n' | tr -d ' ')
+            [ -z "$dep_count" ] && dep_count=0
+            
+            # Track maximum
+            if [ "$dep_count" -gt "$max_usecase_deps" ]; then
+                max_usecase_deps=$dep_count
+                max_usecase_deps_file="$relative_path"
+            fi
+            
+            # Use cases with high deps (>3 is concerning for orchestration)
+            if [ "$dep_count" -gt 3 ]; then
+                usecases_with_high_deps=$((usecases_with_high_deps + 1))
+                if [ -n "$usecase_list" ]; then
+                    usecase_list="$usecase_list, "
+                fi
+                usecase_list="$usecase_list{\"file\": \"$relative_path\", \"dependencies\": $dep_count}"
+            fi
+        fi
+    done < <(find "$module_path" -name "*.use-case.ts" -type f 2>/dev/null)
+    
+    cat <<EOF
+{
+    "usecase_analysis": {
+        "total_usecases": $total_usecases,
+        "usecases_with_high_deps": $usecases_with_high_deps,
+        "max_usecase_dependencies": $max_usecase_deps,
+        "max_usecase_dependencies_file": "$max_usecase_deps_file",
+        "high_complexity_usecases": [$usecase_list]
+    }
+}
+EOF
+}
+
+# ============================================================================
 # Local Complexity Metrics
 # ============================================================================
 
@@ -196,11 +327,13 @@ analyze_local_complexity() {
     local http_files=$(find "$module_path" -path "*/http/*" -name "*.ts" -type f 2>/dev/null | wc -l | tr -d ' ')
     local persistence_files=$(find "$module_path" -path "*/persistence/*" -name "*.ts" -type f 2>/dev/null | wc -l | tr -d ' ')
     local queue_files=$(find "$module_path" -path "*/queue/*" -name "*.ts" -type f 2>/dev/null | wc -l | tr -d ' ')
+    local domain_files=$(find "$module_path" -path "*/domain/*" -name "*.ts" -type f 2>/dev/null | wc -l | tr -d ' ')
     local total_files=$(count_files "$module_path" "*.ts")
     
     # Service analysis
     local service_files=$(find "$module_path" -name "*.service.ts" -type f 2>/dev/null | wc -l | tr -d ' ')
     local usecase_files=$(find "$module_path" -name "*.use-case.ts" -type f 2>/dev/null | wc -l | tr -d ' ')
+    local domain_service_files=$(find "$module_path" -name "*.domain-service.ts" -type f 2>/dev/null | wc -l | tr -d ' ')
     
     # Internal imports depth (files importing from same module)
     local internal_imports=$(grep -r "from '\.\./\|from '\./" "$module_path" 2>/dev/null | wc -l | tr -d ' ')
@@ -216,6 +349,11 @@ analyze_local_complexity() {
     submodule_count=$((submodule_count - 1))  # Subtract the module dir itself
     [ "$submodule_count" -lt 0 ] && submodule_count=0
     
+    # Feature folders count
+    local feature_folders=$(find "$module_path" -maxdepth 1 -type d ! -name "__test__" ! -name "shared" ! -name "integration" ! -name "." 2>/dev/null | wc -l | tr -d ' ')
+    feature_folders=$((feature_folders - 1))
+    [ "$feature_folders" -lt 0 ] && feature_folders=0
+    
     cat <<EOF
 {
     "module": "$module",
@@ -225,14 +363,17 @@ analyze_local_complexity() {
             "core": $core_files,
             "http": $http_files,
             "persistence": $persistence_files,
-            "queue": $queue_files
+            "queue": $queue_files,
+            "domain": $domain_files
         },
         "services": $service_files,
+        "domain_services": $domain_service_files,
         "use_cases": $usecase_files,
         "entities": $entity_count,
         "repositories": $repo_count,
         "internal_imports": $internal_imports,
-        "sub_modules": $submodule_count
+        "sub_modules": $submodule_count,
+        "feature_folders": $feature_folders
     }
 }
 EOF
@@ -483,32 +624,56 @@ print_header() {
 
 print_module_report() {
     local module="$1"
-    local total_files="$2"
-    local core_files="$3"
-    local http_files="$4"
-    local persistence_files="$5"
-    local queue_files="$6"
-    local services="$7"
-    local use_cases="$8"
-    local large_files="$9"
-    local huge_files="${10}"
-    local services_over_threshold="${11}"
-    local god_services="${12}"
-    local max_deps="${13}"
-    local max_deps_service="${14}"
-    local boundary_violations="${15}"
-    local fan_out="${16}"
-    local facade_usage="${17}"
-    local queue_producers="${18}"
-    local queue_consumers="${19}"
-    local external_clients="${20}"
-    local unsafe_transactions="${21}"
-    local total_repos="${22}"
-    local proper_repos="${23}"
-    local local_score="${24}"
-    local global_score="${25}"
-    local overall="${26}"
-    local rating="${27}"
+    local total_files="${2:-0}"
+    local core_files="${3:-0}"
+    local http_files="${4:-0}"
+    local persistence_files="${5:-0}"
+    local queue_files="${6:-0}"
+    local services="${7:-0}"
+    local use_cases="${8:-0}"
+    local large_files="${9:-0}"
+    local huge_files="${10:-0}"
+    local services_over_threshold="${11:-0}"
+    local god_services="${12:-0}"
+    local max_deps="${13:-0}"
+    local max_deps_service="${14:-}"
+    local boundary_violations="${15:-0}"
+    local fan_out="${16:-0}"
+    local facade_usage="${17:-0}"
+    local queue_producers="${18:-0}"
+    local queue_consumers="${19:-0}"
+    local external_clients="${20:-0}"
+    local unsafe_transactions="${21:-0}"
+    local total_repos="${22:-0}"
+    local proper_repos="${23:-0}"
+    local local_score="${24:-0}"
+    local global_score="${25:-0}"
+    local overall="${26:-0}"
+    local rating="${27:-UNKNOWN}"
+    local domain_files="${28:-0}"
+    local domain_services="${29:-0}"
+    local feature_folders="${30:-0}"
+    local event_handlers="${31:-0}"
+    local domain_events="${32:-0}"
+    local outbox_usage="${33:-0}"
+    local cross_feature_handlers="${34:-0}"
+    local async_score="${35:-0}"
+    local total_usecases="${36:-0}"
+    local usecases_high_deps="${37:-0}"
+    local max_usecase_deps="${38:-0}"
+    
+    # Ensure all numeric values have defaults
+    [ -z "$domain_files" ] && domain_files=0
+    [ -z "$domain_services" ] && domain_services=0
+    [ -z "$feature_folders" ] && feature_folders=0
+    [ -z "$event_handlers" ] && event_handlers=0
+    [ -z "$domain_events" ] && domain_events=0
+    [ -z "$outbox_usage" ] && outbox_usage=0
+    [ -z "$cross_feature_handlers" ] && cross_feature_handlers=0
+    [ -z "$async_score" ] && async_score=0
+    [ -z "$total_usecases" ] && total_usecases=0
+    [ -z "$usecases_high_deps" ] && usecases_high_deps=0
+    [ -z "$max_usecase_deps" ] && max_usecase_deps=0
     
     echo "┌──────────────────────────────────────────────────────────────────────────────┐"
     echo "│ MODULE: $module"
@@ -522,8 +687,18 @@ print_module_report() {
     echo "  HTTP Layer:         $http_files"
     echo "  Persistence Layer:  $persistence_files"
     echo "  Queue Layer:        $queue_files"
+    echo "  Domain Layer:       $domain_files"
+    echo "  Feature Folders:    $feature_folders"
+    echo ""
+    
+    echo "  SERVICES & USE CASES"
+    echo "  ────────────────────"
     echo "  Services:           $services"
+    echo "  Domain Services:    $domain_services"
     echo "  Use Cases:          $use_cases"
+    if [ "$usecases_high_deps" -gt 0 ]; then
+        echo "  High-Dep Use Cases: $usecases_high_deps ⚠️ (max deps: $max_usecase_deps)"
+    fi
     echo ""
     
     echo "  FILE SIZE ANALYSIS"
@@ -555,6 +730,23 @@ print_module_report() {
     fi
     echo ""
     
+    echo "  ASYNC COUPLING (Event-Driven)"
+    echo "  ─────────────────────────────"
+    echo "  Event Handlers:     $event_handlers"
+    echo "  Domain Events:      $domain_events"
+    if [ "$outbox_usage" -gt 0 ]; then
+        echo "  Outbox Pattern:     ✅ In use ($outbox_usage refs)"
+    else
+        echo "  Outbox Pattern:     Not detected"
+    fi
+    echo "  Queue Producers:    $queue_producers"
+    echo "  Queue Consumers:    $queue_consumers"
+    if [ "$cross_feature_handlers" -gt 0 ]; then
+        echo "  Cross-Feature Handlers: $cross_feature_handlers ⚠️ (coupling via events)"
+    fi
+    echo "  Async Maturity:     $async_score pts"
+    echo ""
+    
     echo "  GLOBAL COMPLEXITY"
     echo "  ─────────────────"
     if [ "$boundary_violations" -gt 0 ]; then
@@ -564,8 +756,6 @@ print_module_report() {
     fi
     echo "  Fan-Out (deps):     $fan_out"
     echo "  Facade Usage:       $facade_usage"
-    echo "  Queue Producers:    $queue_producers"
-    echo "  Queue Consumers:    $queue_consumers"
     echo "  External Clients:   $external_clients"
     
     if [ "$unsafe_transactions" -gt 0 ]; then
@@ -684,30 +874,42 @@ main() {
         local repo_json
         local file_json
         local service_json
+        local async_json
+        local usecase_json
         
         local_json=$(analyze_local_complexity "$module")
         global_json=$(analyze_global_complexity "$module")
         repo_json=$(check_repository_encapsulation "$module")
         file_json=$(analyze_file_complexity "$module")
         service_json=$(analyze_service_dependencies "$module")
+        async_json=$(analyze_async_coupling "$module")
+        usecase_json=$(analyze_usecase_complexity "$module")
         
         # Extract values for scoring
-        local total_files core_files http_files persistence_files queue_files
-        local services use_cases internal_imports
+        local total_files core_files http_files persistence_files queue_files domain_files
+        local services use_cases internal_imports domain_services feature_folders
         local large_files huge_files
         local services_over_threshold god_services max_deps max_deps_service
         local boundary_violations fan_out facade_usage
         local queue_producers queue_consumers external_clients
         local transactional_total transactional_with_conn unsafe_transactions
         local total_repos proper_repos
+        local event_handlers domain_events outbox_usage cross_feature_handlers async_score
+        local total_usecases usecases_high_deps max_usecase_deps
         
         total_files=$(echo "$local_json" | grep '"total_files":' | grep -oE '[0-9]+')
         core_files=$(echo "$local_json" | grep '"core":' | grep -oE '[0-9]+')
         http_files=$(echo "$local_json" | grep '"http":' | grep -oE '[0-9]+')
         persistence_files=$(echo "$local_json" | grep '"persistence":' | grep -oE '[0-9]+')
         queue_files=$(echo "$local_json" | grep '"queue":' | grep -oE '[0-9]+')
-        services=$(echo "$local_json" | grep '"services":' | grep -oE '[0-9]+')
+        domain_files=$(echo "$local_json" | grep '"domain":' | grep -oE '[0-9]+')
+        services=$(echo "$local_json" | grep '"services":' | grep -oE '[0-9]+' | head -1)
+        domain_services=$(echo "$local_json" | grep '"domain_services":' | grep -oE '[0-9]+')
         use_cases=$(echo "$local_json" | grep '"use_cases":' | grep -oE '[0-9]+')
+        feature_folders=$(echo "$local_json" | grep '"feature_folders":' | grep -oE '[0-9]+')
+        [ -z "$domain_files" ] && domain_files=0
+        [ -z "$domain_services" ] && domain_services=0
+        [ -z "$feature_folders" ] && feature_folders=0
         
         # File complexity
         large_files=$(echo "$file_json" | grep '"large_files":' -A2 | grep '"count":' | grep -oE '[0-9]+' | head -1)
@@ -723,6 +925,26 @@ main() {
         [ -z "$services_over_threshold" ] && services_over_threshold=0
         [ -z "$god_services" ] && god_services=0
         [ -z "$max_deps" ] && max_deps=0
+        
+        # Async coupling metrics
+        event_handlers=$(echo "$async_json" | grep '"event_handlers":' | grep -oE '[0-9]+')
+        domain_events=$(echo "$async_json" | grep '"domain_events_defined":' | grep -oE '[0-9]+')
+        outbox_usage=$(echo "$async_json" | grep '"outbox_pattern_usage":' | grep -oE '[0-9]+')
+        cross_feature_handlers=$(echo "$async_json" | grep '"cross_feature_handlers":' | grep -oE '[0-9]+')
+        async_score=$(echo "$async_json" | grep '"async_maturity_score":' | grep -oE '[0-9]+')
+        [ -z "$event_handlers" ] && event_handlers=0
+        [ -z "$domain_events" ] && domain_events=0
+        [ -z "$outbox_usage" ] && outbox_usage=0
+        [ -z "$cross_feature_handlers" ] && cross_feature_handlers=0
+        [ -z "$async_score" ] && async_score=0
+        
+        # Use case metrics
+        total_usecases=$(echo "$usecase_json" | grep '"total_usecases":' | grep -oE '[0-9]+')
+        usecases_high_deps=$(echo "$usecase_json" | grep '"usecases_with_high_deps":' | grep -oE '[0-9]+')
+        max_usecase_deps=$(echo "$usecase_json" | grep '"max_usecase_dependencies":' | grep -oE '[0-9]+')
+        [ -z "$total_usecases" ] && total_usecases=0
+        [ -z "$usecases_high_deps" ] && usecases_high_deps=0
+        [ -z "$max_usecase_deps" ] && max_usecase_deps=0
         
         boundary_violations=$(echo "$global_json" | grep '"boundary_violations":' | grep -oE '[0-9]+')
         fan_out=$(echo "$global_json" | grep '"fan_out":' | grep -oE '[0-9]+')
@@ -751,7 +973,10 @@ main() {
                 "$huge_files" "$services_over_threshold" "$god_services" "$max_deps" "$max_deps_service" \
                 "$boundary_violations" "$fan_out" "$facade_usage" "$queue_producers" \
                 "$queue_consumers" "$external_clients" "$unsafe_transactions" \
-                "$total_repos" "$proper_repos" "$local_score" "$global_score" "$overall" "$rating"
+                "$total_repos" "$proper_repos" "$local_score" "$global_score" "$overall" "$rating" \
+                "$domain_files" "$domain_services" "$feature_folders" \
+                "$event_handlers" "$domain_events" "$outbox_usage" "$cross_feature_handlers" "$async_score" \
+                "$total_usecases" "$usecases_high_deps" "$max_usecase_deps"
             
             # Print problematic files if any
             if [ "$large_files" -gt 0 ] || [ "$huge_files" -gt 0 ] || [ "$services_over_threshold" -gt 0 ]; then
@@ -775,8 +1000,11 @@ main() {
             \"http\": $http_files,
             \"persistence\": $persistence_files,
             \"queue\": $queue_files,
+            \"domain\": $domain_files,
             \"services\": $services,
+            \"domain_services\": $domain_services,
             \"use_cases\": $use_cases,
+            \"feature_folders\": $feature_folders,
             \"large_files\": $large_files,
             \"huge_files\": $huge_files
         },
@@ -786,12 +1014,24 @@ main() {
             \"max_dependencies\": $max_deps,
             \"max_dependencies_service\": \"$max_deps_service\"
         },
+        \"usecase_analysis\": {
+            \"total_usecases\": $total_usecases,
+            \"usecases_with_high_deps\": $usecases_high_deps,
+            \"max_usecase_dependencies\": $max_usecase_deps
+        },
+        \"async_coupling\": {
+            \"event_handlers\": $event_handlers,
+            \"domain_events_defined\": $domain_events,
+            \"outbox_pattern_usage\": $outbox_usage,
+            \"queue_producers\": $queue_producers,
+            \"queue_consumers\": $queue_consumers,
+            \"cross_feature_handlers\": $cross_feature_handlers,
+            \"async_maturity_score\": $async_score
+        },
         \"global\": {
             \"boundary_violations\": $boundary_violations,
             \"fan_out\": $fan_out,
             \"facade_usage\": $facade_usage,
-            \"queue_producers\": $queue_producers,
-            \"queue_consumers\": $queue_consumers,
             \"external_clients\": $external_clients,
             \"unsafe_transactions\": $unsafe_transactions
         },

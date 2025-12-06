@@ -24,4 +24,5 @@ export enum Tables {
   BillingTaxCalculationSummary = 'BillingTaxCalculationSummary',
   BillingTaxRate = 'BillingTaxRate',
   BillingUsageRecord = 'BillingUsageRecord',
+  PlanChangeRequest = 'PlanChangeRequest',
 }

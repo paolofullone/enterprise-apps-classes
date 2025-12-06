@@ -36,6 +36,7 @@ describe('Subscription Billing e2e test', () => {
   });
 
   afterEach(async () => {
+    await testDbClient(Tables.PlanChangeRequest).delete();
     await testDbClient(Tables.BillingSubscriptionAddOn).delete();
     await testDbClient(Tables.BillingInvoiceLineItem).delete();
     await testDbClient(Tables.BillingInvoice).delete();
@@ -49,8 +50,8 @@ describe('Subscription Billing e2e test', () => {
     module.close();
   });
 
-  describe('POST /subscription/:id/change-plan', () => {
-    it('should change plan successfully', async () => {
+  describe('POST /subscription/:id/change-plan (async)', () => {
+    it('should initiate plan change and return planChangeRequestId', async () => {
       // Arrange: Create Basic plan and subscription
       const basicPlan = planFactory.build({
         name: 'Basic',
@@ -82,9 +83,78 @@ describe('Subscription Billing e2e test', () => {
       });
       await testDbClient(Tables.Plan).insert(premiumPlan);
 
-      // Act: Change to Premium plan
+      // Act: Change to Premium plan (async - invoice generated later)
       const res = await request(app.getHttpServer())
         .post(`/subscription/${subscription.id}/change-plan`)
+        .set('Authorization', `Bearer fake-token`)
+        .send({
+          newPlanId: premiumPlan.id,
+          userId: fakeUserId,
+          chargeImmediately: true,
+          keepAddOns: false,
+        });
+
+      // Assert
+      expect(res.status).toBe(HttpStatus.OK);
+      expect(res.body).toMatchObject({
+        subscriptionId: subscription.id,
+        oldPlanId: basicPlan.id,
+        newPlanId: premiumPlan.id,
+        planChangeRequestId: expect.any(String),
+        invoiceStatus: 'pending',
+      });
+
+      // Verify subscription was updated
+      const updatedSubscription = await testDbClient(Tables.Subscription)
+        .where({ id: subscription.id })
+        .first();
+      expect(updatedSubscription.planId).toBe(premiumPlan.id);
+
+      // Verify PlanChangeRequest was created
+      const planChangeRequest = await testDbClient(Tables.PlanChangeRequest)
+        .where({ id: res.body.planChangeRequestId })
+        .first();
+      expect(planChangeRequest).toBeDefined();
+      expect(planChangeRequest.status).toBe('PENDING_INVOICE');
+    });
+  });
+
+  describe('POST /subscription/:id/change-plan-sync (backward compatibility)', () => {
+    it('should change plan and return invoice synchronously', async () => {
+      // Arrange: Create Basic plan and subscription
+      const basicPlan = planFactory.build({
+        name: 'Basic',
+        description: 'Basic monthly plan',
+        currency: 'USD',
+        amount: 10.0,
+        interval: PlanInterval.Month,
+        trialPeriod: 0,
+      });
+      await testDbClient(Tables.Plan).insert(basicPlan);
+
+      const subscription = subscriptionFactory.build({
+        userId: fakeUserId,
+        planId: basicPlan.id,
+        status: SubscriptionStatus.Active,
+        currentPeriodStart: new Date('2023-01-01'),
+        currentPeriodEnd: new Date('2023-02-01'),
+      });
+      await testDbClient(Tables.Subscription).insert(subscription);
+
+      // Create Premium plan
+      const premiumPlan = planFactory.build({
+        name: 'Premium',
+        description: 'Premium monthly plan',
+        currency: 'USD',
+        amount: 20.0,
+        interval: PlanInterval.Month,
+        trialPeriod: 0,
+      });
+      await testDbClient(Tables.Plan).insert(premiumPlan);
+
+      // Act: Change to Premium plan (sync - waits for invoice)
+      const res = await request(app.getHttpServer())
+        .post(`/subscription/${subscription.id}/change-plan-sync`)
         .set('Authorization', `Bearer fake-token`)
         .send({
           newPlanId: premiumPlan.id,

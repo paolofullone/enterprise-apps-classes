@@ -5,6 +5,7 @@ import { LoggerModule } from '@sharedModules/logger/logger.module';
 
 // Shared infrastructure (only persistence module - NOT a feature module)
 import { BillingPersistenceModule } from '@billingModule/shared/persistence/billing-persistence.module';
+import { BillingSharedModule } from '@billingModule/shared/billing-shared.module';
 import { PaymentGatewayClient } from '@billingModule/invoice/http/client/payment-gateway-api/payment-gateway.client';
 import { AccountingIntegrationClient } from '@billingModule/invoice/http/client/accounting-api/accounting-integration.client';
 
@@ -14,6 +15,7 @@ import { BillingPublicApiProvider } from '@billingModule/integration/provider/pu
 // Subscription feature
 import { SubscriptionService } from '@billingModule/subscription/core/service/subscription.service';
 import { SubscriptionBillingService } from '@billingModule/subscription/core/service/subscription-billing.service';
+import { SubscriptionPlanChangeService } from '@billingModule/subscription/core/service/subscription-plan-change.service';
 import { AddOnManagerService } from '@billingModule/subscription/core/service/add-on-manager.service';
 import { ProrationCalculatorService } from '@billingModule/subscription/core/service/proration-calculator.service';
 import { PlanRepository } from '@billingModule/subscription/persistence/repository/plan.repository';
@@ -21,16 +23,20 @@ import { AddOnRepository } from '@billingModule/subscription/persistence/reposit
 import { SubscriptionRepository } from '@billingModule/subscription/persistence/repository/subscription.repository';
 import { SubscriptionAddOnRepository } from '@billingModule/subscription/persistence/repository/subscription-add-on.repository';
 import { SubscriptionDiscountRepository } from '@billingModule/subscription/persistence/repository/subscription-discount.repository';
+import { PlanChangeRequestRepository } from '@billingModule/subscription/persistence/repository/plan-change-request.repository';
+import { PlanChangeInvoiceQueueProducer } from '@billingModule/subscription/queue/producer/plan-change-invoice.queue-producer';
 import { SubscriptionController } from '@billingModule/subscription/http/rest/controller/subscription.controller';
 import { SubscriptionBillingController } from '@billingModule/subscription/http/rest/controller/subscription-billing.controller';
 
 // Invoice feature
 import { InvoiceService } from '@billingModule/invoice/core/service/invoice.service';
 import { InvoiceGeneratorService } from '@billingModule/invoice/core/service/invoice-generator.service';
+import { PlanChangeInvoiceGeneratorService } from '@billingModule/invoice/core/service/plan-change-invoice-generator.service';
 import { ChargeRepository } from '@billingModule/invoice/persistence/repository/charge.repository';
 import { PaymentRepository } from '@billingModule/invoice/persistence/repository/payment.repository';
 import { InvoiceRepository } from '@billingModule/invoice/persistence/repository/invoice.repository';
 import { InvoiceLineItemRepository } from '@billingModule/invoice/persistence/repository/invoice-line-item.repository';
+import { PlanChangeInvoiceQueueConsumer } from '@billingModule/invoice/queue/consumer/plan-change-invoice.queue-consumer';
 import { InvoiceController } from '@billingModule/invoice/http/rest/controller/invoice.controller';
 
 // Credit feature
@@ -65,6 +71,7 @@ import { TaxCalculationSummaryRepository } from '@billingModule/tax/persistence/
       middleware: { mount: true },
     }),
     BillingPersistenceModule,
+    BillingSharedModule,
     AuthModule,
     LoggerModule,
   ],
@@ -79,6 +86,7 @@ import { TaxCalculationSummaryRepository } from '@billingModule/tax/persistence/
     // Subscription
     SubscriptionService,
     SubscriptionBillingService,
+    SubscriptionPlanChangeService,
     AddOnManagerService,
     ProrationCalculatorService,
     PlanRepository,
@@ -86,10 +94,14 @@ import { TaxCalculationSummaryRepository } from '@billingModule/tax/persistence/
     SubscriptionRepository,
     SubscriptionAddOnRepository,
     SubscriptionDiscountRepository,
+    PlanChangeRequestRepository,
+    PlanChangeInvoiceQueueProducer,
 
     // Invoice
     InvoiceService,
     InvoiceGeneratorService,
+    PlanChangeInvoiceGeneratorService,
+    PlanChangeInvoiceQueueConsumer,
     ChargeRepository,
     PaymentRepository,
     InvoiceRepository,

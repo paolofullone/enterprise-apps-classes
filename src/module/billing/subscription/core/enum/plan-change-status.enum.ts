@@ -8,4 +8,3 @@ export enum PlanChangeStatus {
   /** Invoice generation failed (will retry) */
   InvoiceFailed = 'INVOICE_FAILED',
 }
-

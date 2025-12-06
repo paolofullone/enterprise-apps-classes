@@ -96,4 +96,3 @@ export class AddPlanChangeRequestMigration1764500000000
     );
   }
 }
-

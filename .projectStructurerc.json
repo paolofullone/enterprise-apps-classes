@@ -116,7 +116,8 @@
         { "name": "{kebab-case}.module.ts" },
         { "name": "core", "ruleId": "core_folder" },
         { "name": "http", "ruleId": "http_folder" },
-        { "name": "persistence", "ruleId": "persistence_folder" }
+        { "name": "persistence", "ruleId": "persistence_folder" },
+        { "name": "queue", "ruleId": "queue_folder" }
       ]
     },
 
@@ -244,6 +245,10 @@
         {
           "name": "interface",
           "children": [{ "ruleId": "file_name" }]
+        },
+        {
+          "name": "event",
+          "children": [{ "name": "{kebab-case}.event.ts" }]
         },
         { "name": "model", "children": [{ "ruleId": "file_name" }] },
         { "name": "service", "children": [{ "ruleId": "file_name" }] },

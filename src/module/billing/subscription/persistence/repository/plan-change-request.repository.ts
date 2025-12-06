@@ -56,4 +56,3 @@ export class PlanChangeRequestRepository extends DefaultTypeOrmRepository<PlanCh
     await this.save(request);
   }
 }
-

@@ -48,4 +48,3 @@ export class PlanChangeInvoiceQueueProducer {
     return job.id;
   }
 }
-

@@ -59,4 +59,3 @@ export class PlanChangeStatusResponseDto {
   @Expose()
   errorMessage: string | null;
 }
-

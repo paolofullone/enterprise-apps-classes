@@ -62,4 +62,3 @@ export interface PlanChangeInvoiceEvent {
   /** User's billing address for tax calculation */
   billingAddress: BillingAddress | null;
 }
-

@@ -41,4 +41,3 @@ import { ConfigService } from '@sharedModules/config/service/config.service';
   exports: [BullModule],
 })
 export class BillingSharedModule {}
-

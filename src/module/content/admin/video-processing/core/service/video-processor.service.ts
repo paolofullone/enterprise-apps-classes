@@ -1,4 +1,4 @@
-import { VideoProcessingJobProducer } from '@contentModule/admin/shared/queue/producer/video-processing-job.queue-producer';
+import { VideoProcessingJobProducer } from '@contentModule/admin/video-processing/queue/producer/video-processing-job.queue-producer';
 import { Video } from '@contentModule/shared/persistence/entity/video.entity';
 import { Injectable } from '@nestjs/common';
 

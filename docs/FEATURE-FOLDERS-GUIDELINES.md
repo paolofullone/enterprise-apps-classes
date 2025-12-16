@@ -1,6 +1,6 @@
 # Feature Folders Guidelines
 
-*Organizing code as Vertical Slices for Fakeflix*
+_Organizing code as Vertical Slices for Fakeflix_
 
 ---
 
@@ -21,13 +21,14 @@ Use decision tree to decide: new feature vs sub-feature vs shared/
 
 Para evitar confusão, usamos os seguintes termos:
 
-| Termo | O que é | Exemplo |
-|-------|---------|---------|
-| **Domain Module** ou **Package** | Módulo NestJS completo no monorepo | `@identity`, `@billing`, `@content` |
-| **Feature** | Conceito de negócio dentro de um package | `subscription`, `invoice` (dentro de Billing) |
-| **Feature Folders** | Organizar código em pastas por features de negócio, sem boundaries técnicos entre elas |
+| Termo                            | O que é                                                                                | Exemplo                                       |
+| -------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------- |
+| **Domain Module** ou **Package** | Módulo NestJS completo no monorepo                                                     | `@identity`, `@billing`, `@content`           |
+| **Feature**                      | Conceito de negócio dentro de um package                                               | `subscription`, `invoice` (dentro de Billing) |
+| **Feature Folders**              | Organizar código em pastas por features de negócio, sem boundaries técnicos entre elas |
 
 **Importante**:
+
 - Domain Module **É** a unidade de deploy
 - Domain Module **TEM** boundaries técnicos (package boundaries)
 - Feature **NÃO É** unidade de deploy (sempre deploy junto com o package)
@@ -49,22 +50,24 @@ Cada feature é uma **vertical slice**: uma fatia que corta todas as camadas té
 
 Feature Folders é diferente de **Feature Modules** (padrão NestJS):
 
-| Aspecto | Feature Folders (Nossa Abordagem) | Feature Modules (NestJS) |
-|---------|-----------------------------------|--------------------------|
-| **Boundaries** | Apenas pastas (visual) | Módulos NestJS (técnicos) |
-| **DI Complexity** | Simples (injeção direta) | Complexo (imports/exports, forwardRef) |
-| **Circular Deps** | Impossível entre módulos (só há 1) | Comum, requer `forwardRef()` |
-| **Encapsulamento** | Nenhum (acesso livre) | Via exports |
+| Aspecto            | Feature Folders (Nossa Abordagem)  | Feature Modules (NestJS)               |
+| ------------------ | ---------------------------------- | -------------------------------------- |
+| **Boundaries**     | Apenas pastas (visual)             | Módulos NestJS (técnicos)              |
+| **DI Complexity**  | Simples (injeção direta)           | Complexo (imports/exports, forwardRef) |
+| **Circular Deps**  | Impossível entre módulos (só há 1) | Comum, requer `forwardRef()`           |
+| **Encapsulamento** | Nenhum (acesso livre)              | Via exports                            |
 
 ### When to Apply Feature Folders
 
 Feature Folders são **opcionais** e devem ser aplicados quando:
+
 - Um módulo tem ≥5 serviços/use-cases diferentes
 - A carga cognitiva para navegar o módulo está alta
 - Diferentes funcionalidades têm ciclos de vida independentes
 - Você quer facilitar extração futura para microserviços
 
 **Atualmente no Fakeflix:**
+
 - ✅ `content/` - Já usa sub-módulos (admin, catalog, video-processor)
 - ✅ `billing/` - Usa feature folders com módulo único
 - ✅ `identity/` - Simples, não precisa de feature folders ainda
@@ -209,6 +212,7 @@ billing/
 ```
 
 **THIS is where we apply Feature Folders!**
+
 - Each folder = complete vertical slice
 - Contains core/ + http/ + persistence/
 - **NO** separate NestJS module per feature
@@ -333,13 +337,13 @@ START: New functionality needs to be implemented
 
 ### Quick Reference Table
 
-| Criteria | Question | Subscription | AddOn | Invoice | TaxCalculator |
-|----------|----------|--------------|-------|---------|---------------|
-| **Vocabulary** | Own business terms? | ✅ plan, cycle | ❌ uses subscription terms | ✅ line items, totals | ⚠️ technical |
-| **Endpoint** | Root-level controller? | ✅ /subscriptions | ❌ /subscriptions/:id/add-ons | ✅ /invoices | ❌ no endpoint |
-| **Independence** | Exists without others? | ✅ Yes | ❌ Needs Subscription | ✅ Yes | ⚠️ utility |
-| **Files** | ≥3 files of logic? | ✅ Yes | ⚠️ Maybe | ✅ Yes | ❌ 1 file |
-| **Decision** | | ✅ **Feature** | ❌ **Sub-feature** | ✅ **Feature** | 📁 **Shared** |
+| Criteria         | Question               | Subscription      | AddOn                         | Invoice               | TaxCalculator  |
+| ---------------- | ---------------------- | ----------------- | ----------------------------- | --------------------- | -------------- |
+| **Vocabulary**   | Own business terms?    | ✅ plan, cycle    | ❌ uses subscription terms    | ✅ line items, totals | ⚠️ technical   |
+| **Endpoint**     | Root-level controller? | ✅ /subscriptions | ❌ /subscriptions/:id/add-ons | ✅ /invoices          | ❌ no endpoint |
+| **Independence** | Exists without others? | ✅ Yes            | ❌ Needs Subscription         | ✅ Yes                | ⚠️ utility     |
+| **Files**        | ≥3 files of logic?     | ✅ Yes            | ⚠️ Maybe                      | ✅ Yes                | ❌ 1 file      |
+| **Decision**     |                        | ✅ **Feature**    | ❌ **Sub-feature**            | ✅ **Feature**        | 📁 **Shared**  |
 
 ---
 
@@ -356,6 +360,7 @@ billing/
 ```
 
 **Why separate?**
+
 - Different vocabulary (billing cycle, plan vs line items, totals)
 - Different workflows (subscription renewal vs invoice generation)
 - Different endpoints (/subscriptions vs /invoices)
@@ -370,6 +375,7 @@ admin/
 ```
 
 **Why could be separate?**
+
 - Different vocabulary (duration vs episodes, seasons)
 - Different workflows (single video vs multiple episodes)
 - Different controllers already exist
@@ -387,6 +393,7 @@ subscription/
 ```
 
 **Why keep together?**
+
 - Add-on cannot exist without Subscription
 - Nested endpoint: `/subscriptions/:id/add-ons`
 - Shares vocabulary and business rules
@@ -403,6 +410,7 @@ invoice/
 ```
 
 **Why keep together?**
+
 - Line items are part of Invoice aggregate
 - No dedicated controller
 - Strong parent-child relationship
@@ -581,7 +589,7 @@ import { CreditController } from './credit/http/rest/controller/credit.controlle
 
 @Module({
   imports: [
-    BillingSharedModule,  // Only infrastructure modules
+    BillingSharedModule, // Only infrastructure modules
   ],
   providers: [
     // Subscription providers
@@ -601,11 +609,7 @@ import { CreditController } from './credit/http/rest/controller/credit.controlle
     // Public API
     BillingPublicApiProvider,
   ],
-  controllers: [
-    SubscriptionController,
-    InvoiceController,
-    CreditController,
-  ],
+  controllers: [SubscriptionController, InvoiceController, CreditController],
   exports: [BillingPublicApiProvider],
 })
 export class BillingModule {}
@@ -796,16 +800,16 @@ Based on current structure analysis:
 
 Based on current services:
 
-| Feature | Services | Entities |
-|---------|----------|----------|
+| Feature          | Services                                                                                                 | Entities                                                 |
+| ---------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
 | **subscription** | subscription.service, subscription-billing.service, add-on-manager.service, proration-calculator.service | subscription, subscription-add-on, subscription-discount |
-| **invoice** | invoice.service, invoice-generator.service | invoice, invoice-line-item |
-| **credit** | credit-manager.service | credit |
-| **discount** | discount-engine.service | discount |
-| **dunning** | dunning-manager.service | dunning-attempt |
-| **usage** | usage-billing.service | usage-record |
-| **tax** | tax-calculator.service | tax-rate, tax-calculation-summary |
-| **shared** | (infrastructure) | plan, payment, charge |
+| **invoice**      | invoice.service, invoice-generator.service                                                               | invoice, invoice-line-item                               |
+| **credit**       | credit-manager.service                                                                                   | credit                                                   |
+| **discount**     | discount-engine.service                                                                                  | discount                                                 |
+| **dunning**      | dunning-manager.service                                                                                  | dunning-attempt                                          |
+| **usage**        | usage-billing.service                                                                                    | usage-record                                             |
+| **tax**          | tax-calculator.service                                                                                   | tax-rate, tax-calculation-summary                        |
+| **shared**       | (infrastructure)                                                                                         | plan, payment, charge                                    |
 
 #### Phase 2: Create Feature Folder Structure
 
@@ -929,11 +933,7 @@ import { CreditController } from './credit/http/rest/controller/credit.controlle
     // Public API
     BillingPublicApiProvider,
   ],
-  controllers: [
-    SubscriptionController,
-    InvoiceController,
-    CreditController,
-  ],
+  controllers: [SubscriptionController, InvoiceController, CreditController],
   exports: [BillingPublicApiProvider],
 })
 export class BillingModule {}
@@ -998,15 +998,15 @@ feature-name/
 
 ### File Naming (follows existing conventions)
 
-| Type | Pattern |
-|------|---------|
-| Service | `{kebab-case}.service.ts` |
-| Use Case | `{kebab-case}.use-case.ts` |
-| Entity | `{kebab-case}.entity.ts` |
-| Repository | `{kebab-case}.repository.ts` |
-| Controller | `{kebab-case}.controller.ts` |
-| Request DTO | `*-request.dto.ts` |
-| Response DTO | `*-response.dto.ts` |
+| Type         | Pattern                      |
+| ------------ | ---------------------------- |
+| Service      | `{kebab-case}.service.ts`    |
+| Use Case     | `{kebab-case}.use-case.ts`   |
+| Entity       | `{kebab-case}.entity.ts`     |
+| Repository   | `{kebab-case}.repository.ts` |
+| Controller   | `{kebab-case}.controller.ts` |
+| Request DTO  | `*-request.dto.ts`           |
+| Response DTO | `*-response.dto.ts`          |
 
 ---
 
@@ -1015,23 +1015,27 @@ feature-name/
 ### Justificativa Contextual
 
 **1. Alta Coesão Transacional**
+
 - Identity: `signup()` envolve `user` + `authentication` + email verification
 - Billing: `changePlan()` envolve `subscription` + `invoice` + `payment`
 - Operações de negócio **naturalmente abrangem múltiplas features**
 - Módulo único torna essas operações **simples de implementar**
 
 **2. Mesmo Time e Deploy**
+
 - Identity e Billing são mantidos pelo **mesmo time**
 - Deployam sempre **juntos como unidade**
 - Não há necessidade real de separação técnica forte
 - Boundaries fortes (Feature Modules) não agregam valor
 
 **3. Granularidade Já Existe**
+
 - Já temos separação no nível de **packages**: `@identity`, `@billing`, `@content`
 - Criar feature modules internos adiciona camada **extra de granularidade**
 - Para nosso contexto: **organização por pastas é suficiente**
 
 **4. Simplicidade > Complexidade**
+
 - **Evita**: `forwardRef()`, imports/exports complexos, configuração CLS
 - **Ganha**: Código mais simples, DI direto, transações naturais
 - **Resultado**: Menos código para manter, mais foco em lógica de negócio
@@ -1039,6 +1043,7 @@ feature-name/
 ### Quando Reavaliar
 
 Considere **Feature Modules** se no futuro:
+
 - ✅ Features dentro do package precisarem de **isolamento técnico forte** (compliance, auditoria)
 - ✅ **Arquitetura mudar** e features se tornarem unidades de deploy separadas
 - ✅ Times diferentes mantiverem features diferentes **e não puderem coordenar**
@@ -1052,16 +1057,19 @@ Considere **Feature Modules** se no futuro:
 ### Key Concepts & Thought Leaders
 
 **Vertical Slice Architecture**
+
 - Creator: **Jimmy Bogard** (MediatR, AutoMapper)
 - Key idea: Features as complete vertical slices through all layers
 - [Blog](https://jimmybogard.com) | [GitHub](https://github.com/jbogard)
 
 **Screaming Architecture**
+
 - Creator: **Robert Martin (Uncle Bob)**
 - Key idea: Architecture should "scream" what the system does, not how it's built
 - See: Clean Architecture book
 
 **Package by Feature**
+
 - Popularized by: **Martin Fowler**
 - Key idea: Package by business feature, not technical function
 
@@ -1074,6 +1082,7 @@ Considere **Feature Modules** se no futuro:
 ### Integration with Existing Patterns
 
 Feature Folders **complement** our existing patterns:
+
 - ✅ Keep Lean Controllers principle
 - ✅ Keep Repository Pattern (DefaultTypeOrmRepository)
 - ✅ Keep Transaction Management (@Transactional)

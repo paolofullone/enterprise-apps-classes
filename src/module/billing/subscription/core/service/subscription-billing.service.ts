@@ -6,8 +6,13 @@ import { Plan } from '@billingModule/subscription/persistence/entity/plan.entity
 import { Invoice } from '@billingModule/invoice/persistence/entity/invoice.entity';
 import { InvoiceLineItem } from '@billingModule/invoice/persistence/entity/invoice-line-item.entity';
 import { SubscriptionAddOn } from '@billingModule/subscription/persistence/entity/subscription-add-on.entity';
+import { Credit } from '@billingModule/credit/persistence/entity/credit.entity';
 import { SubscriptionRepository } from '@billingModule/subscription/persistence/repository/subscription.repository';
 import { PlanRepository } from '@billingModule/subscription/persistence/repository/plan.repository';
+import { InvoiceRepository } from '@billingModule/invoice/persistence/repository/invoice.repository';
+import { InvoiceLineItemRepository } from '@billingModule/invoice/persistence/repository/invoice-line-item.repository';
+import { SubscriptionAddOnRepository } from '@billingModule/subscription/persistence/repository/subscription-add-on.repository';
+import { CreditRepository } from '@billingModule/credit/persistence/repository/credit.repository';
 import { ProrationCalculatorService } from '@billingModule/subscription/core/service/proration-calculator.service';
 import { UsageBillingService } from '@billingModule/usage/core/service/usage-billing.service';
 import { TaxCalculatorService } from '@billingModule/tax/core/service/tax-calculator.service';
@@ -17,6 +22,7 @@ import { CreditManagerService } from '@billingModule/credit/core/service/credit-
 import { AddOnManagerService } from '@billingModule/subscription/core/service/add-on-manager.service';
 import { ChargeType } from '@billingModule/shared/core/enum/charge-type.enum';
 import { SubscriptionStatus } from '@billingModule/subscription/core/enum/subscription-status.enum';
+import { InvoiceStatus } from '@billingModule/invoice/core/enum/invoice-status.enum';
 import { TaxProvider } from '@billingModule/tax/core/enum/tax-provider.enum';
 import { TaxConfiguration } from '@billingModule/tax/core/interface/tax-calculation.interface';
 
@@ -43,6 +49,10 @@ export class SubscriptionBillingService {
   constructor(
     private readonly subscriptionRepository: SubscriptionRepository,
     private readonly planRepository: PlanRepository,
+    private readonly invoiceRepository: InvoiceRepository,
+    private readonly invoiceLineItemRepository: InvoiceLineItemRepository,
+    private readonly subscriptionAddOnRepository: SubscriptionAddOnRepository,
+    private readonly creditRepository: CreditRepository,
     private readonly prorationCalculatorService: ProrationCalculatorService,
     private readonly usageBillingService: UsageBillingService,
     private readonly taxCalculatorService: TaxCalculatorService,
@@ -290,8 +300,9 @@ export class SubscriptionBillingService {
   /**
    * Change plan for a user with ownership validation
    *
-   * Validates that the subscription belongs to the user before changing the plan.
-   * This method is suitable for use in controllers where user context is available.
+   * Uses "Calculate First, Persist Last" pattern to minimize transaction time.
+   * Phase 1: Load data and perform all calculations (no transaction)
+   * Phase 2: Persist all changes in a single short transaction
    *
    * @param userId - User ID
    * @param subscriptionId - Subscription ID
@@ -299,7 +310,6 @@ export class SubscriptionBillingService {
    * @param options - Change options
    * @returns Complete result with proration details
    */
-  @Transactional({ connectionName: 'billing' })
   async changePlanForUser(
     userId: string,
     subscriptionId: string,
@@ -351,6 +361,10 @@ export class SubscriptionBillingService {
 
     const effectiveDate = options.effectiveDate || new Date();
 
+    // ============================================
+    // PHASE 1: LOAD & CALCULATE (no transaction)
+    // ============================================
+
     // Step 2: Calculate proration credit from old plan
     const prorationCredit =
       await this.prorationCalculatorService.calculateProrationCredit(
@@ -368,8 +382,8 @@ export class SubscriptionBillingService {
         currentPeriodEnd,
       );
 
-    // Step 4: Migrate add-ons
-    const addOnChanges = await this.addOnManagerService.migrateAddOns(
+    // Step 4: Calculate add-on migration (without persisting)
+    const addOnChanges = this.calculateAddOnMigration(
       subscription.addOns,
       newPlan.allowedAddOns || [],
       effectiveDate,
@@ -469,40 +483,49 @@ export class SubscriptionBillingService {
       excludeUsageCharges: false,
     });
 
-    // Step 9: Get available credits
+    // Step 9: Get available credits (read-only)
     const availableCredits =
       await this.creditManagerService.getUserAvailableCredits(userId);
 
-    // Step 10: Generate invoice
-    const invoice = await this.invoiceGeneratorService.generateInvoice(
-      subscription,
-      lineItems,
-      {
-        dueDate: effectiveDate,
-        immediateCharge: options.chargeImmediately,
-      },
+    // Step 10: Build invoice object (without persisting)
+    const invoice = this.buildInvoice(subscription, lineItems, {
+      dueDate: effectiveDate,
+      immediateCharge: options.chargeImmediately,
+    });
+
+    // Step 11: Calculate credit applications (without persisting)
+    const creditApplications = this.calculateCreditApplications(
+      invoice,
+      availableCredits,
     );
 
-    // Apply credits to invoice
-    const creditApplications =
-      await this.creditManagerService.applyCreditsToInvoice(
-        invoice,
-        availableCredits,
-      );
-
-    // Update invoice with credits
+    // Update invoice totals with credits
     invoice.totalCredit = creditApplications.reduce(
       (sum, c) => sum + c.amount,
       0,
     );
     invoice.amountDue = Math.max(0, invoice.total - invoice.totalCredit);
 
-    // Step 11: Update subscription
+    // Prepare subscription changes
     subscription.planId = newPlanId;
     subscription.plan = newPlan;
-    await this.subscriptionRepository.save(subscription);
 
-    // Step 12: Emit events (TODO: implement event emitter)
+    // ============================================
+    // PHASE 2: PERSIST ALL (short transaction)
+    // ============================================
+    await this.persistPlanChange({
+      subscription,
+      invoice,
+      lineItems,
+      addOnsToRemove: addOnChanges.removed,
+      creditsToUpdate: creditApplications.map((ca) => ({
+        credit: availableCredits.find((c) => c.id === ca.creditId)!,
+        amountApplied: ca.amount,
+        invoiceId: invoice.id,
+      })),
+    });
+
+    // Log after transaction completes
     this.appLogger.log('Plan change completed for user', {
       userId,
       oldPlan: subscription.plan.name,
@@ -750,5 +773,215 @@ export class SubscriptionBillingService {
       },
       easyTaxEnabled: false,
     };
+  }
+
+  // ============================================
+  // PRIVATE METHODS FOR "CALCULATE FIRST, PERSIST LAST" PATTERN
+  // ============================================
+
+  /**
+   * Calculate add-on migration WITHOUT persisting
+   *
+   * Determines which add-ons to keep and which to remove when changing plans.
+   * Does NOT save to database - just calculates the changes.
+   *
+   * @param oldAddOns - Current subscription add-ons
+   * @param newPlanAllowedAddOns - Add-ons allowed by new plan
+   * @param effectiveDate - When plan change occurs
+   * @returns Summary of add-on changes (kept, removed, totalCredit)
+   */
+  private calculateAddOnMigration(
+    oldAddOns: SubscriptionAddOn[],
+    newPlanAllowedAddOns: string[],
+    effectiveDate: Date,
+  ): {
+    kept: SubscriptionAddOn[];
+    removed: SubscriptionAddOn[];
+    totalCredit: number;
+  } {
+    const kept: SubscriptionAddOn[] = [];
+    const removed: SubscriptionAddOn[] = [];
+    let totalCredit = 0;
+
+    for (const subscriptionAddOn of oldAddOns) {
+      const isCompatible = newPlanAllowedAddOns.includes(
+        subscriptionAddOn.addOnId,
+      );
+
+      if (isCompatible) {
+        kept.push(subscriptionAddOn);
+      } else {
+        // Mark for removal (will be persisted later)
+        subscriptionAddOn.endDate = effectiveDate;
+        removed.push(subscriptionAddOn);
+
+        // Calculate prorated credit for removed add-on
+        if (subscriptionAddOn.addOn) {
+          const credit =
+            this.prorationCalculatorService.calculateAddOnProration(
+              subscriptionAddOn.addOn.price,
+              subscriptionAddOn.startDate,
+              effectiveDate,
+              new Date(effectiveDate.getTime() + 30 * 24 * 60 * 60 * 1000),
+            );
+          totalCredit += credit;
+        }
+      }
+    }
+
+    return { kept, removed, totalCredit };
+  }
+
+  /**
+   * Build invoice object WITHOUT persisting
+   *
+   * Creates an Invoice entity with calculated totals but does NOT save to database.
+   * The invoice will be persisted later in the transaction.
+   *
+   * @param subscription - Subscription being invoiced
+   * @param lineItems - All line items for invoice
+   * @param options - Additional options (due date, immediate charge)
+   * @returns Invoice entity (not persisted)
+   */
+  private buildInvoice(
+    subscription: Subscription,
+    lineItems: InvoiceLineItem[],
+    options: { dueDate?: Date; immediateCharge?: boolean },
+  ): Invoice {
+    // Generate temporary invoice number (will be regenerated on persist)
+    const now = new Date();
+    const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const userPrefix = subscription.userId.substring(0, 8);
+    const invoiceNumber = `INV-${yearMonth}-${userPrefix}-${Date.now()}`;
+
+    // Calculate totals
+    let subtotal = 0;
+    let totalTax = 0;
+    let totalDiscount = 0;
+
+    for (const line of lineItems) {
+      subtotal += line.amount;
+      totalTax += line.taxAmount;
+      totalDiscount += line.discountAmount;
+    }
+
+    const total = subtotal + totalTax - totalDiscount;
+    const dueDate =
+      options.dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    return new Invoice({
+      invoiceNumber,
+      userId: subscription.userId,
+      subscriptionId: subscription.id,
+      status: InvoiceStatus.Draft,
+      subtotal,
+      totalTax,
+      totalDiscount,
+      totalCredit: 0,
+      total,
+      amountDue: total,
+      currency: 'USD',
+      billingPeriodStart: subscription.currentPeriodStart || new Date(),
+      billingPeriodEnd: subscription.currentPeriodEnd || new Date(),
+      dueDate,
+      paidAt: null,
+    });
+  }
+
+  /**
+   * Calculate credit applications WITHOUT persisting
+   *
+   * Determines how much of each credit to apply to the invoice.
+   * Uses FIFO strategy: expiring soonest first, then oldest first.
+   * Does NOT update credit entities - just calculates the amounts.
+   *
+   * @param invoice - Invoice to apply credits to
+   * @param credits - Available credits for user
+   * @returns Array of credit applications with amounts
+   */
+  private calculateCreditApplications(
+    invoice: Invoice,
+    credits: Credit[],
+  ): { creditId: string; amount: number }[] {
+    // Sort credits: expiring soonest first, then oldest first
+    const sortedCredits = [...credits].sort((a, b) => {
+      if (a.expiresAt && !b.expiresAt) return -1;
+      if (!a.expiresAt && b.expiresAt) return 1;
+      if (a.expiresAt && b.expiresAt) {
+        const diff = a.expiresAt.getTime() - b.expiresAt.getTime();
+        if (diff !== 0) return diff;
+      }
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+
+    let remainingAmount = invoice.amountDue;
+    const applications: { creditId: string; amount: number }[] = [];
+
+    for (const credit of sortedCredits) {
+      if (remainingAmount <= 0) break;
+
+      const amountToApply = Math.min(credit.remainingAmount, remainingAmount);
+      if (amountToApply > 0) {
+        applications.push({
+          creditId: credit.id,
+          amount: amountToApply,
+        });
+        remainingAmount -= amountToApply;
+      }
+    }
+
+    return applications;
+  }
+
+  /**
+   * Persist all plan change entities in a single short transaction
+   *
+   * This method consolidates all database writes into one atomic operation,
+   * minimizing lock time and ensuring consistency.
+   *
+   * @param data - All entities to persist
+   */
+  @Transactional({ connectionName: 'billing' })
+  private async persistPlanChange(data: {
+    subscription: Subscription;
+    invoice: Invoice;
+    lineItems: InvoiceLineItem[];
+    addOnsToRemove: SubscriptionAddOn[];
+    creditsToUpdate: {
+      credit: Credit;
+      amountApplied: number;
+      invoiceId: string;
+    }[];
+  }): Promise<void> {
+    // 1. Generate proper invoice number
+    const invoiceNumber =
+      await this.invoiceGeneratorService.generateInvoiceNumber(
+        data.subscription,
+      );
+    data.invoice.invoiceNumber = invoiceNumber;
+
+    // 2. Save invoice
+    const savedInvoice = await this.invoiceRepository.save(data.invoice);
+
+    // 3. Associate and save line items
+    for (const lineItem of data.lineItems) {
+      lineItem.invoiceId = savedInvoice.id;
+      await this.invoiceLineItemRepository.save(lineItem);
+    }
+
+    // 4. Save removed add-ons
+    for (const addOn of data.addOnsToRemove) {
+      await this.subscriptionAddOnRepository.save(addOn);
+    }
+
+    // 5. Update credits
+    for (const { credit, amountApplied, invoiceId } of data.creditsToUpdate) {
+      credit.remainingAmount -= amountApplied;
+      credit.appliedToInvoiceId = invoiceId;
+      await this.creditRepository.save(credit);
+    }
+
+    // 6. Save subscription
+    await this.subscriptionRepository.save(data.subscription);
   }
 }

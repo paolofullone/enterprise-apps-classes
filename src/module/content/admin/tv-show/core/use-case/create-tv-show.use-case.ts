@@ -1,12 +1,14 @@
 import { TvShowContentModel } from '@contentModule/admin/tv-show/core/model/tv-show-content.model';
-import { ContentRepository } from '@contentModule/admin/shared/persistence/repository/content.repository';
+import { TvShowContentRepository } from '@contentModule/admin/tv-show/persistence/repository/tv-show-content.repository';
 import { Thumbnail } from '@contentModule/shared/persistence/entity/thumbnail.entity';
 import { TvShow } from '@contentModule/shared/persistence/entity/tv-show.entity';
 import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class CreateTvShowUseCase {
-  constructor(private readonly contentRepository: ContentRepository) {}
+  constructor(
+    private readonly tvShowContentRepository: TvShowContentRepository,
+  ) {}
 
   async execute(tvShow: {
     //TODO add userId
@@ -25,6 +27,6 @@ export class CreateTvShowUseCase {
         url: tvShow.thumbnailUrl,
       });
     }
-    return await this.contentRepository.saveTvShow(content);
+    return await this.tvShowContentRepository.saveTvShow(content);
   }
 }

@@ -953,70 +953,6 @@ npm run test:e2e
 npm run build
 ```
 
-## Sub-Modules e Feature Folders (Seção Expandida)
-
-### Estrutura de Sub-Modules
-
-Sub-modules (Level 2) **também** devem usar Feature Folders internamente:
-
-```
-✅ CORRETO - Feature Folders dentro de Sub-Module
-
-content/admin/                          ← Sub-module (Level 2)
-├── content-admin.module.ts             ← ONE NestJS module
-├── movie/                              ← Feature (Level 3)
-│   ├── core/
-│   ├── http/
-│   └── persistence/
-├── tv-show/                            ← Feature (Level 3)
-│   ├── core/
-│   ├── http/
-│   └── persistence/
-└── video-processing/                   ← Feature (Level 3)
-    ├── core/
-    └── queue/
-```
-
-### ❌ Anti-Pattern: `shared/` em Sub-Modules
-
-**IMPORTANTE**: Sub-modules **NÃO** devem ter pasta `shared/`!
-
-```
-❌ ERRADO - shared/ em sub-module
-
-content/admin/
-├── movie/
-├── tv-show/
-└── shared/                  ← ❌ Sub-modules não têm shared/
-    └── persistence/
-        └── content.repository.ts
-```
-
-**Por quê?**
-
-- `shared/` é **apenas para Domain Modules** (Level 1)
-- Sub-modules aplicam Feature Folders **da mesma forma** que Domain Modules
-- Cada feature deve ser auto-contida
-
-### ✅ Padrão: Camadas Técnicas vs shared/
-
-**Diferença crucial**:
-
-```typescript
-// ✅ Domain Module (Level 1) - TEM shared/
-billing/
-├── subscription/       ← Feature
-├── invoice/            ← Feature
-└── shared/             ← ✅ OK - infraestrutura cross-feature
-    └── persistence/
-        └── billing-persistence.module.ts
-
-// ✅ Sub-Module (Level 2) - NÃO TEM shared/
-content/admin/
-├── movie/              ← Feature
-├── tv-show/            ← Feature
-└── video-processing/   ← Feature
-// Sem shared/! ✅
 ---
 
 ## Quick Reference
@@ -1024,25 +960,23 @@ content/admin/
 ### Feature Folder Template
 
 ```
-
 feature-name/
-├── core/ # Business logic
-│ ├── service/
-│ ├── use-case/ # Optional
-│ ├── interface/
-│ └── enum/
-├── http/ # API layer
-│ └── rest/
-│ ├── controller/
-│ └── dto/
-├── persistence/ # Data layer
-│ ├── entity/
-│ └── repository/
-├── queue/ # Optional
-└── **test**/ # Tests
+├── core/          # Business logic
+│   ├── service/
+│   ├── use-case/  # Optional
+│   ├── interface/
+│   └── enum/
+├── http/          # API layer
+│   └── rest/
+│       ├── controller/
+│       └── dto/
+├── persistence/   # Data layer
+│   ├── entity/
+│   └── repository/
+├── queue/         # Optional
+└── __test__/      # Tests
 
 ⚠️ NO module file! (e.g., NO feature-name.module.ts)
-
 ```
 
 ### Decision Checklist
@@ -1064,15 +998,15 @@ feature-name/
 
 ### File Naming (follows existing conventions)
 
-| Type | Pattern |
-|------|---------|
-| Service | `{kebab-case}.service.ts` |
-| Use Case | `{kebab-case}.use-case.ts` |
-| Entity | `{kebab-case}.entity.ts` |
-| Repository | `{kebab-case}.repository.ts` |
-| Controller | `{kebab-case}.controller.ts` |
-| Request DTO | `*-request.dto.ts` |
-| Response DTO | `*-response.dto.ts` |
+| Type         | Pattern                      |
+| ------------ | ---------------------------- |
+| Service      | `{kebab-case}.service.ts`    |
+| Use Case     | `{kebab-case}.use-case.ts`   |
+| Entity       | `{kebab-case}.entity.ts`     |
+| Repository   | `{kebab-case}.repository.ts` |
+| Controller   | `{kebab-case}.controller.ts` |
+| Request DTO  | `*-request.dto.ts`           |
+| Response DTO | `*-response.dto.ts`          |
 
 ---
 
@@ -1081,23 +1015,27 @@ feature-name/
 ### Justificativa Contextual
 
 **1. Alta Coesão Transacional**
+
 - Identity: `signup()` envolve `user` + `authentication` + email verification
 - Billing: `changePlan()` envolve `subscription` + `invoice` + `payment`
 - Operações de negócio **naturalmente abrangem múltiplas features**
 - Módulo único torna essas operações **simples de implementar**
 
 **2. Mesmo Time e Deploy**
+
 - Identity e Billing são mantidos pelo **mesmo time**
 - Deployam sempre **juntos como unidade**
 - Não há necessidade real de separação técnica forte
 - Boundaries fortes (Feature Modules) não agregam valor
 
 **3. Granularidade Já Existe**
+
 - Já temos separação no nível de **packages**: `@identity`, `@billing`, `@content`
 - Criar feature modules internos adiciona camada **extra de granularidade**
 - Para nosso contexto: **organização por pastas é suficiente**
 
 **4. Simplicidade > Complexidade**
+
 - **Evita**: `forwardRef()`, imports/exports complexos, configuração CLS
 - **Ganha**: Código mais simples, DI direto, transações naturais
 - **Resultado**: Menos código para manter, mais foco em lógica de negócio
@@ -1105,6 +1043,7 @@ feature-name/
 ### Quando Reavaliar
 
 Considere **Feature Modules** se no futuro:
+
 - ✅ Features dentro do package precisarem de **isolamento técnico forte** (compliance, auditoria)
 - ✅ **Arquitetura mudar** e features se tornarem unidades de deploy separadas
 - ✅ Times diferentes mantiverem features diferentes **e não puderem coordenar**
@@ -1118,16 +1057,19 @@ Considere **Feature Modules** se no futuro:
 ### Key Concepts & Thought Leaders
 
 **Vertical Slice Architecture**
+
 - Creator: **Jimmy Bogard** (MediatR, AutoMapper)
 - Key idea: Features as complete vertical slices through all layers
 - [Blog](https://jimmybogard.com) | [GitHub](https://github.com/jbogard)
 
 **Screaming Architecture**
+
 - Creator: **Robert Martin (Uncle Bob)**
 - Key idea: Architecture should "scream" what the system does, not how it's built
 - See: Clean Architecture book
 
 **Package by Feature**
+
 - Popularized by: **Martin Fowler**
 - Key idea: Package by business feature, not technical function
 
@@ -1140,6 +1082,7 @@ Considere **Feature Modules** se no futuro:
 ### Integration with Existing Patterns
 
 Feature Folders **complement** our existing patterns:
+
 - ✅ Keep Lean Controllers principle
 - ✅ Keep Repository Pattern (DefaultTypeOrmRepository)
 - ✅ Keep Transaction Management (@Transactional)
@@ -1150,4 +1093,3 @@ The only change is **where** files are located, not **how** they work.
 ---
 
 **Last Updated**: Based on billing/, content/, identity/ modules analysis and RFC-08 decision.
-```

@@ -1,8 +1,8 @@
-import { ContentDistributionService } from '@contentModule/admin/shared/core/service/content-distribution.service';
-import { EpisodeLifecycleService } from '@contentModule/admin/shared/core/service/episode-lifecycle.service';
-import { VideoProcessorService } from '@contentModule/admin/shared/core/service/video-processor.service';
+import { ContentDistributionService } from '@contentModule/admin/tv-show/core/service/content-distribution.service';
+import { EpisodeLifecycleService } from '@contentModule/admin/tv-show/core/service/episode-lifecycle.service';
+import { VideoProcessorService } from '@contentModule/admin/video-processing/core/service/video-processor.service';
 import { CreateEpisodeRequestDto } from '@contentModule/admin/tv-show/http/rest/dto/request/create-episode-request.dto';
-import { ContentRepository } from '@contentModule/admin/shared/persistence/repository/content.repository';
+import { TvShowContentRepository } from '@contentModule/admin/tv-show/persistence/repository/tv-show-content.repository';
 import { EpisodeRepository } from '@contentModule/admin/tv-show/persistence/repository/episode.repository';
 import { Episode } from '@contentModule/shared/persistence/entity/episode.entity';
 import { Video } from '@contentModule/shared/persistence/entity/video.entity';
@@ -13,7 +13,7 @@ import { runInTransaction } from 'typeorm-transactional';
 @Injectable()
 export class CreateTvShowEpisodeUseCase {
   constructor(
-    private readonly contentRepository: ContentRepository,
+    private readonly tvShowContentRepository: TvShowContentRepository,
     private readonly episodeLifecycleService: EpisodeLifecycleService,
     private readonly videoProcessorService: VideoProcessorService,
     private readonly episodeRepository: EpisodeRepository,
@@ -28,7 +28,7 @@ export class CreateTvShowEpisodeUseCase {
       videoSizeInKb: number;
     },
   ): Promise<Episode> {
-    const content = await this.contentRepository.findTvShowContentById(
+    const content = await this.tvShowContentRepository.findTvShowById(
       episodeData.contentId,
       ['tvShow'],
     );
@@ -59,7 +59,7 @@ export class CreateTvShowEpisodeUseCase {
     episode.video = video;
     await runInTransaction(
       async () => {
-        await this.contentRepository.saveTvShow(content);
+        await this.tvShowContentRepository.saveTvShow(content);
 
         const savedEpisode = await this.episodeRepository.save(episode);
         //If it fails the transaction is rolled back

@@ -1,7 +1,7 @@
 import { MovieContentModel } from '@contentModule/admin/movie/core/model/movie-content.model';
-import { VideoProcessorService } from '@contentModule/admin/shared/core/service/video-processor.service';
+import { VideoProcessorService } from '@contentModule/admin/video-processing/core/service/video-processor.service';
 import { ExternalMovieClient } from '@contentModule/admin/movie/http/client/external-movie-rating/external-movie-rating.client';
-import { ContentRepository } from '@contentModule/admin/shared/persistence/repository/content.repository';
+import { MovieContentRepository } from '@contentModule/admin/movie/persistence/repository/movie-content.repository';
 import { Movie } from '@contentModule/shared/persistence/entity/movie.entity';
 import { Thumbnail } from '@contentModule/shared/persistence/entity/thumbnail.entity';
 import { Video } from '@contentModule/shared/persistence/entity/video.entity';
@@ -14,7 +14,7 @@ export interface ExternalMovieRating {
 @Injectable()
 export class CreateMovieUseCase {
   constructor(
-    private readonly contentRepository: ContentRepository,
+    private readonly movieContentRepository: MovieContentRepository,
     private readonly videoProcessorService: VideoProcessorService,
     private readonly externalMovieRatingClient: ExternalMovieClient,
   ) {}
@@ -48,7 +48,7 @@ export class CreateMovieUseCase {
       });
     }
 
-    const content = await this.contentRepository.saveMovie(contentModel);
+    const content = await this.movieContentRepository.saveMovie(contentModel);
     await this.videoProcessorService.processMetadataAndModeration(
       contentModel.movie.video,
     );

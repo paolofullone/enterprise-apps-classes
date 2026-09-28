@@ -54,17 +54,6 @@ export class AppController {
             );
           },
         }),
-        fileFilter: (_req, file, cb) => {
-          if (file.mimetype !== 'video/mp4' && file.mimetype !== 'image/jpeg') {
-            return cb(
-              new BadRequestException(
-                'Invalid file type. Only video/mp4 and image/jpeg are supported.',
-              ),
-              false,
-            );
-          }
-          return cb(null, true);
-        },
       },
     ),
   )
@@ -84,6 +73,19 @@ export class AppController {
     if (!videoFile || !thumbnailFile) {
       throw new BadRequestException(
         'Both video and thumbnail files are required.',
+      );
+    }
+
+    // Validate file types in the handler where exceptions work properly
+    if (videoFile.mimetype !== 'video/mp4') {
+      throw new BadRequestException(
+        'Invalid file type. Only video/mp4 and image/jpeg are supported.',
+      );
+    }
+
+    if (thumbnailFile.mimetype !== 'image/jpeg') {
+      throw new BadRequestException(
+        'Invalid file type. Only video/mp4 and image/jpeg are supported.',
       );
     }
 

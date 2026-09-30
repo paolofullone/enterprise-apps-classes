@@ -26,12 +26,6 @@ describe('ContentController (e2e)', () => {
     videoRepository = module.get<VideoRepository>(VideoRepository);
   });
 
-  beforeEach(async () => {
-    jest
-      .useFakeTimers({ advanceTimers: true })
-      .setSystemTime(new Date('2023-01-01'));
-  });
-
   afterEach(async () => {
     await videoRepository.clear();
   });
@@ -51,7 +45,9 @@ describe('ContentController (e2e)', () => {
         sizeInKb: 1430145,
       });
 
-      const fileSize = 1430145;
+      // sizeInKb is a lossy rounding of the real byte size; use the actual
+      // fixture size on disk instead of round-tripping through it.
+      const fileSize = fs.statSync('./test/fixtures/sample.mp4').size;
       const range = `bytes=0-${fileSize - 1}`;
 
       const response = await request(app.getHttpServer())

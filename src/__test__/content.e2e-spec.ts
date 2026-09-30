@@ -22,12 +22,6 @@ describe('ContentController (e2e)', () => {
     videoRepository = module.get<VideoRepository>(VideoRepository);
   });
 
-  beforeEach(async () => {
-    jest
-      .useFakeTimers({ advanceTimers: true })
-      .setSystemTime(new Date('2023-01-01'));
-  });
-
   afterEach(async () => {
     await videoRepository.clear();
   });

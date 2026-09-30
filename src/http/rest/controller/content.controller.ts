@@ -53,17 +53,6 @@ export class ContentController {
             );
           },
         }),
-        fileFilter: (_req, file, cb) => {
-          if (file.mimetype !== 'video/mp4' && file.mimetype !== 'image/jpeg') {
-            return cb(
-              new BadRequestException(
-                'Invalid file type. Only video/mp4 and image/jpeg are supported.',
-              ),
-              false,
-            );
-          }
-          return cb(null, true);
-        },
       },
     ),
   )
@@ -86,6 +75,16 @@ export class ContentController {
         'Both video and thumbnail files are required.',
       );
     }
+
+    if (
+      videoFile.mimetype !== 'video/mp4' ||
+      thumbnailFile.mimetype !== 'image/jpeg'
+    ) {
+      throw new BadRequestException(
+        'Invalid file type. Only video/mp4 and image/jpeg are supported.',
+      );
+    }
+
     const createdContent = await this.contentManagementService.createContent({
       title: contentData.title,
       description: contentData.description,

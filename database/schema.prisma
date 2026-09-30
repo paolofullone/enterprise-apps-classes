@@ -14,7 +14,7 @@ model Video {
   url       String
   sizeInKb  Int
   duration  Int
-  thumbnailUrl String?
+  thumbnailUrl String
   createdAt DateTime
   updatedAt DateTime
 }

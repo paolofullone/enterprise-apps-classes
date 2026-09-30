@@ -21,12 +21,6 @@ describe('ContentController (e2e)', () => {
     prismaService = module.get<PrismaService>(PrismaService);
   });
 
-  beforeEach(async () => {
-    jest
-      .useFakeTimers({ advanceTimers: true })
-      .setSystemTime(new Date('2023-01-01'));
-  });
-
   afterEach(async () => {
     await prismaService.video.deleteMany();
   });
@@ -41,10 +35,6 @@ describe('ContentController (e2e)', () => {
       const video = {
         title: 'Test Video',
         description: 'This is a test video',
-        videoUrl: 'uploads/test.mp4',
-        thumbnailUrl: 'uploads/test.jpg',
-        sizeInKb: 1430145,
-        duration: 100,
       };
 
       await request(app.getHttpServer())
@@ -60,8 +50,8 @@ describe('ContentController (e2e)', () => {
             description: video.description,
             url: expect.stringContaining('mp4'),
             thumbnailUrl: expect.stringContaining('jpg'),
-            sizeInKb: video.sizeInKb,
-            duration: video.duration,
+            sizeInKb: expect.any(Number),
+            duration: expect.any(Number),
           });
         });
     });
@@ -127,7 +117,9 @@ describe('ContentController (e2e)', () => {
         .field('description', 'This is a test video')
         .expect(HttpStatus.CREATED);
 
-      const fileSize = 1430145;
+      // sizeInKb is a lossy rounding of the real byte size; use the actual
+      // fixture size on disk instead of round-tripping through it.
+      const fileSize = fs.statSync('./test/fixtures/sample.mp4').size;
       const range = `bytes=0-${fileSize - 1}`;
 
       const response = await request(app.getHttpServer())

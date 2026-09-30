@@ -53,17 +53,6 @@ export class ContentController {
             );
           },
         }),
-        fileFilter: (_req, file, cb) => {
-          if (file.mimetype !== 'video/mp4' && file.mimetype !== 'image/jpeg') {
-            return cb(
-              new BadRequestException(
-                'Invalid file type. Only video/mp4 and image/jpeg are supported.',
-              ),
-              false,
-            );
-          }
-          return cb(null, true);
-        },
       },
     ),
   )
@@ -87,12 +76,24 @@ export class ContentController {
       );
     }
 
+    if (videoFile.mimetype !== 'video/mp4') {
+      throw new BadRequestException(
+        'Invalid file type. Only video/mp4 and image/jpeg are supported.',
+      );
+    }
+
+    if (thumbnailFile.mimetype !== 'image/jpeg') {
+      throw new BadRequestException(
+        'Invalid file type. Only video/mp4 and image/jpeg are supported.',
+      );
+    }
+
     return this.contentManagementService.createContent({
       title: contentData.title,
       description: contentData.description,
       url: videoFile.path,
       thumbnailUrl: thumbnailFile.path,
-      sizeInKb: videoFile.size,
+      sizeInKb: Math.round(videoFile.size / 1024),
     });
   }
 

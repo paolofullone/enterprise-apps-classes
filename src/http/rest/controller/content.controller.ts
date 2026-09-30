@@ -88,13 +88,36 @@ export class ContentController {
       );
     }
 
-    return this.contentManagementService.createContent({
+    const content = await this.contentManagementService.createContent({
       title: contentData.title,
       description: contentData.description,
       url: videoFile.path,
       thumbnailUrl: thumbnailFile.path,
       sizeInKb: Math.round(videoFile.size / 1024),
     });
+
+    // createContent always builds a Movie with a video + thumbnail, so this
+    // is a genuine invariant violation, not an expected optional case.
+    const movie = content.getMedia();
+    if (!movie) {
+      throw new Error('Expected created content to have media');
+    }
+    const video = movie.getVideo();
+    const thumbnail = movie.getThumbnail();
+
+    return {
+      // The stream endpoint looks up by Video.id (see MediaPlayerService),
+      // not Content.id, so the response must expose the video's own id.
+      id: video.getId(),
+      title: content.getTitle(),
+      description: content.getDescription(),
+      url: video.getUrl(),
+      thumbnailUrl: thumbnail?.getUrl() ?? '',
+      sizeInKb: video.getSizeInKb(),
+      duration: video.getDuration(),
+      createdAt: content.getCreatedAt(),
+      updatedAt: content.getUpdatedAt(),
+    };
   }
 
   @Get('stream/:videoId')

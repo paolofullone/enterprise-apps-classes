@@ -45,14 +45,14 @@ export class VideoUploadController {
             );
           },
         }),
-        fileFilter: (_req, file, cb) => {
+        fileFilter: (req, file, cb) => {
+          // ponytail: reject via cb(null, false) instead of cb(error) — passing an
+          // error aborts the multipart stream mid-read, which drops any still-uploading
+          // field and surfaces as ECONNRESET on the client instead of a clean 400.
           if (file.mimetype !== 'video/mp4' && file.mimetype !== 'image/jpeg') {
-            return cb(
-              new BadRequestException(
-                'Invalid file type. Only video/mp4 and image/jpeg are supported.',
-              ),
-              false,
-            );
+            (req as Request & { fileValidationError?: string }).fileValidationError =
+              'Invalid file type. Only video/mp4 and image/jpeg are supported.';
+            return cb(null, false);
           }
           return cb(null, true);
         },
@@ -61,7 +61,7 @@ export class VideoUploadController {
   )
   @UseInterceptors(new RestResponseInterceptor(CreateVideoResponseDto))
   async uploadVideo(
-    @Req() _req: Request,
+    @Req() req: Request & { fileValidationError?: string },
     @Body()
     contentData: {
       title: string;
@@ -70,6 +70,10 @@ export class VideoUploadController {
     @UploadedFiles()
     files: { video?: Express.Multer.File[]; thumbnail?: Express.Multer.File[] },
   ): Promise<CreateVideoResponseDto> {
+    if (req.fileValidationError) {
+      throw new BadRequestException(req.fileValidationError);
+    }
+
     const videoFile = files.video?.[0];
     const thumbnailFile = files.thumbnail?.[0];
 
